@@ -1050,8 +1050,10 @@ pub fn compose(
     admit_output_paths(output, receipt)?;
     let (raw, manifest) = manifest(root, manifest_path)?;
     let reader = facts::Reader::for_config(root, config)?;
-    let old = Registrations::load(&reader.registry_values(root, base, config)?, config)?;
-    let new = Registrations::load(&reader.registry_values(root, candidate, config)?, config)?;
+    let base_values = reader.registry_values(root, base, config)?;
+    let old = Registrations::load(&base_values, config)?;
+    let candidate_values = reader.registry_values(root, candidate, config)?;
+    let new = Registrations::load(&candidate_values, config)?;
     let selected = if chrono_harness::units::full_execution_units(new.config())?.is_some() {
         let delta = facts::delta(&reader.tree(root, base)?, &reader.tree(root, candidate)?);
         let (impact, findings) = chrono_judge_filemap::produce_for_endpoints(
@@ -1063,11 +1065,22 @@ pub fn compose(
                 serde_json::to_string(&findings).map_err(|e| e.to_string())?
             ));
         }
-        Some(chrono_judge_routes::global_selection(
-            &old,
-            &new,
-            &impact,
-            chrono_judge_registration::downstream_validator(&new, "routes"),
+        let query = value!({
+            "config": config, "base": base_values, "candidate": candidate_values,
+            "tests": impact.tests, "retired_tests": impact.retired_tests
+        });
+        Some(crate::routes::selected_tests(
+            &query,
+            &new.config()["protocol"],
+            std::env::var("PATH").map_err(|e| e.to_string())?,
+            |command, stdin| {
+                let process = chrono_harness::run_process(root, command, stdin)?;
+                Ok((
+                    process.exit_code,
+                    process.stdout_bytes,
+                    process.stderr_bytes,
+                ))
+            },
         )?)
     } else {
         None
