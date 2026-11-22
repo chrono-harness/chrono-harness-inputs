@@ -1,0 +1,787 @@
+//! Snapshot transport, not dependency discovery or a governance verdict.
+#![allow(unexpected_cfgs)]
+#[cfg(not(verus_keep_ghost))]
+use chrono_harness::{verified_identifiers as identifiers, verus};
+#[cfg(verus_keep_ghost)]
+pub extern crate chrono_identifiers as identifiers;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+#[derive(Clone, Copy)]
+pub enum InputKind { Capture, Compose, Pair }
+
+pub enum InputAction<'a> {
+    Version,
+    Help,
+    Command(InputCommand<'a>),
+}
+
+/// The validated command borrows its original argv; no second option inventory is built.
+pub struct InputCommand<'a> {
+    pub kind: InputKind,
+    pub arguments: &'a [String],
+}
+
+pub struct MissingInputOption<'a> {
+    pub key: &'a str,
+}
+
+pub open spec fn input_kind(text: Seq<char>) -> Option<InputKind> {
+    if text == "capture"@ { Some(InputKind::Capture) }
+    else if text == "compose"@ { Some(InputKind::Compose) }
+    else if text == "pair"@ { Some(InputKind::Pair) }
+    else { None }
+}
+
+pub open spec fn input_key_allowed(kind: InputKind, key: Seq<char>) -> bool {
+    key == "--host-root"@ || key == "--output"@ || key == "--report-consumer"@ || match kind {
+        InputKind::Capture => key == "--config"@ || key == "--commit"@ || key == "--unit"@,
+        InputKind::Compose => key == "--config"@ || key == "--base"@ || key == "--candidate"@
+            || key == "--manifest"@ || key == "--receipt"@,
+        InputKind::Pair => key == "--base-snapshot"@ || key == "--candidate-snapshot"@
+            || key == "--base-root"@ || key == "--candidate-root"@,
+    }
+}
+
+fn allowed_input_key(kind: InputKind, key: &str) -> (allowed: bool)
+    ensures allowed == input_key_allowed(kind, key@),
+{
+    identifiers::equal_text(key, "--host-root") || identifiers::equal_text(key, "--output")
+        || identifiers::equal_text(key, "--report-consumer")
+        || match kind {
+            InputKind::Capture => identifiers::equal_text(key, "--config")
+                || identifiers::equal_text(key, "--commit") || identifiers::equal_text(key, "--unit"),
+            InputKind::Compose => identifiers::equal_text(key, "--config")
+                || identifiers::equal_text(key, "--base") || identifiers::equal_text(key, "--candidate")
+                || identifiers::equal_text(key, "--manifest") || identifiers::equal_text(key, "--receipt"),
+            InputKind::Pair => identifiers::equal_text(key, "--base-snapshot")
+                || identifiers::equal_text(key, "--candidate-snapshot")
+                || identifiers::equal_text(key, "--base-root") || identifiers::equal_text(key, "--candidate-root"),
+        }
+}
+
+pub open spec fn input_prefix_valid(args: Seq<String>, kind: InputKind, pairs: int) -> bool {
+    0 <= pairs <= (args.len() - 1) / 2 && forall|i: int| 0 <= i < pairs ==>
+        input_key_allowed(kind, (#[trigger] args[1 + 2 * i])@)
+        && forall|j: int| 0 <= j < i ==> (#[trigger] args[1 + 2 * j])@ != args[1 + 2 * i]@
+}
+
+pub open spec fn input_command_valid(command: InputCommand) -> bool {
+    let args = command.arguments@;
+    args.len() > 0 && args.len() % 2 == 1 && input_kind(args[0]@) == Some(command.kind)
+        && input_prefix_valid(args, command.kind, (args.len() - 1) / 2)
+}
+
+pub open spec fn input_command_result(args: Seq<String>) -> Option<Seq<char>> {
+    if args.len() == 0 { Some("E_USAGE: capture or pair required"@) }
+    else if args.len() == 1 && (args[0]@ == "--version"@ || args[0]@ == "--help"@) { None }
+    else { match input_kind(args[0]@) {
+        None => Some("E_USAGE: unknown command"@),
+        Some(kind) => if !input_prefix_valid(args, kind, (args.len() - 1) / 2) {
+            Some("E_USAGE: unknown or duplicate option"@)
+        } else if args.len() % 2 == 0 { Some("E_USAGE: option needs a value"@) }
+        else { None },
+    } }
+}
+
+/// Return the first matching complete key/value pair from the specified original prefix.
+fn find_input_option(args: &[String], pairs: usize, key: &str) -> (found: Option<usize>)
+    requires args.len() > 0, pairs <= (args.len() - 1) / 2,
+    ensures match found {
+        Some(i) => i < pairs && args@[1 + 2 * i]@ == key@
+            && forall|j: int| 0 <= j < i ==> (#[trigger] args@[1 + 2 * j])@ != key@,
+        None => forall|j: int| 0 <= j < pairs ==> (#[trigger] args@[1 + 2 * j])@ != key@,
+    },
+{
+    let mut i = 0;
+    while i < pairs
+        invariant args.len() > 0, pairs <= (args.len() - 1) / 2, i <= pairs,
+            forall|j: int| 0 <= j < i ==> (#[trigger] args@[1 + 2 * j])@ != key@,
+        decreases pairs - i,
+    {
+        if identifiers::equal_text(args[1 + 2 * i].as_str(), key) { return Some(i); }
+        i += 1;
+    }
+    None
+}
+
+impl<'a> InputCommand<'a> {
+    pub fn option(&self, key: &str) -> (value: Option<&'a str>)
+        requires input_command_valid(*self),
+        ensures match value {
+            Some(value) => exists|i: int| 0 <= i < (self.arguments@.len() - 1) / 2
+                && (#[trigger] self.arguments@[1 + 2 * i])@ == key@ && value@ == self.arguments@[2 + 2 * i]@,
+            None => forall|i: int| 0 <= i < (self.arguments@.len() - 1) / 2
+                ==> (#[trigger] self.arguments@[1 + 2 * i])@ != key@,
+        },
+    {
+        match find_input_option(self.arguments, (self.arguments.len() - 1) / 2, key) {
+            Some(i) => Some(self.arguments[2 + 2 * i].as_str()),
+            None => None,
+        }
+    }
+
+    pub fn required<'k>(&self, key: &'k str) -> (value: Result<&'a str, MissingInputOption<'k>>)
+        requires input_command_valid(*self),
+        ensures match value {
+            Ok(value) => exists|i: int| 0 <= i < (self.arguments@.len() - 1) / 2
+                && (#[trigger] self.arguments@[1 + 2 * i])@ == key@ && value@ == self.arguments@[2 + 2 * i]@,
+            Err(error) => error.key@ == key@
+                && forall|i: int| 0 <= i < (self.arguments@.len() - 1) / 2
+                    ==> (#[trigger] self.arguments@[1 + 2 * i])@ != key@,
+        },
+    {
+        match self.option(key) {
+            Some(value) => Ok(value),
+            None => Err(MissingInputOption { key }),
+        }
+    }
+}
+
+pub fn parse_input_command(args: &[String]) -> (out: Result<InputAction<'_>, String>)
+    ensures match out {
+        Err(error) => input_command_result(args@) == Some(error@),
+        Ok(action) => input_command_result(args@).is_none() && match action {
+            InputAction::Version => args@.len() == 1 && args@[0]@ == "--version"@,
+            InputAction::Help => args@.len() == 1 && args@[0]@ == "--help"@,
+            InputAction::Command(command) => input_command_valid(command) && command.arguments@ == args@,
+        },
+    },
+{
+    if args.len() == 0 { return Err("E_USAGE: capture or pair required".to_string()); }
+    let first = args[0].as_str();
+    if args.len() == 1 && identifiers::equal_text(first, "--version") { return Ok(InputAction::Version); }
+    if args.len() == 1 && identifiers::equal_text(first, "--help") { return Ok(InputAction::Help); }
+    let kind = if identifiers::equal_text(first, "capture") { InputKind::Capture }
+        else if identifiers::equal_text(first, "compose") { InputKind::Compose }
+        else if identifiers::equal_text(first, "pair") { InputKind::Pair }
+        else { return Err("E_USAGE: unknown command".to_string()); };
+    let pairs = (args.len() - 1) / 2;
+    let mut i = 0;
+    while i < pairs
+        invariant args.len() > 0, pairs == (args.len() - 1) / 2, i <= pairs,
+            input_kind(args@[0]@) == Some(kind), input_prefix_valid(args@, kind, i as int),
+        decreases pairs - i,
+    {
+        let key = args[1 + 2 * i].as_str();
+        if !allowed_input_key(kind, key) || find_input_option(args, i, key).is_some() {
+            assert(!input_prefix_valid(args@, kind, pairs as int));
+            return Err("E_USAGE: unknown or duplicate option".to_string());
+        }
+        proof {
+            assert forall|j: int| 0 <= j < i + 1 implies
+                input_key_allowed(kind, (#[trigger] args@[1 + 2 * j])@)
+                    && forall|k: int| 0 <= k < j ==> (#[trigger] args@[1 + 2 * k])@ != args@[1 + 2 * j]@ by {
+                if j < i { assert(input_key_allowed(kind, args@[1 + 2 * j]@)); }
+            }
+        }
+        i += 1;
+    }
+    if args.len() % 2 == 0 { return Err("E_USAGE: option needs a value".to_string()); }
+    Ok(InputAction::Command(InputCommand { kind, arguments: args }))
+}
+
+/// All current capture and composition paths use the same exact blob identity.
+pub fn blob_identity_matches(actual: &str, actual_length: u64,
+    expected: &str, expected_length: u64) -> (matches: bool)
+    ensures matches == (actual@ == expected@ && actual_length == expected_length),
+{
+    identifiers::equal_text(actual, expected) && actual_length == expected_length
+}
+}
+
+pub mod composition;
+#[cfg(not(verus_keep_ghost))]
+mod custody {
+    //! Input callers own their exact output capability until handoff or last use.
+    use super::*;
+    use chrono_harness::retained_artifacts::retention::{
+        self, Consumer, Inventory, OriginalIdentity, Publication, ReadScope,
+    };
+
+    /// Keep this value alive while using its retained paths. Serialization copies
+    /// the snapshot, not its ownership; a different process needs an explicit handoff.
+    pub struct Produced {
+        pub(crate) value: Value,
+        root: PathBuf,
+        primary: String,
+        _scope: ReadScope,
+    }
+
+    impl std::ops::Deref for Produced {
+        type Target = Value;
+        fn deref(&self) -> &Value {
+            &self.value
+        }
+    }
+    impl std::fmt::Debug for Produced {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            std::fmt::Debug::fmt(&self.value, f)
+        }
+    }
+    impl PartialEq for Produced {
+        fn eq(&self, other: &Self) -> bool {
+            self.value == other.value
+        }
+    }
+    impl PartialEq<Value> for Produced {
+        fn eq(&self, other: &Value) -> bool {
+            &self.value == other
+        }
+    }
+    impl PartialEq<Produced> for Value {
+        fn eq(&self, other: &Produced) -> bool {
+            self == &other.value
+        }
+    }
+    impl serde::Serialize for Produced {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serde::Serialize::serialize(&self.value, serializer)
+        }
+    }
+    impl Produced {
+        pub(crate) fn new(
+            root: &Path,
+            primary: &str,
+            value: Value,
+            scope: ReadScope,
+        ) -> Result<Self, String> {
+            Ok(Self {
+                value,
+                root: fs::canonicalize(root).map_err(|e| e.to_string())?,
+                primary: primary.into(),
+                _scope: scope,
+            })
+        }
+
+        /// The named caller accepts the primary original and its declared closure.
+        /// It releases this declaration through the existing retention interface
+        /// after its actual downstream use or durable handoff has finished.
+        pub fn handoff(&self, consumer: &str) -> Result<Consumer, String> {
+            let owner = Inventory::adopted(&self.root)?
+                .ok_or("E_INPUT_RETENTION: caller handoff requires adopted retention")?;
+            let status = owner.producer_status("full-original", Some(&self.primary))?;
+            let records = status["records"]
+                .as_array()
+                .ok_or("input producer status")?;
+            let [record] = records.as_slice() else {
+                return Err(
+                    "E_INPUT_RETENTION: existing unknown output requires its original custodian"
+                        .into(),
+                );
+            };
+            let original = OriginalIdentity {
+                id: record["id"].as_str().ok_or("input output id")?.into(),
+                path: self.primary.clone(),
+                identity: record["identity"]
+                    .as_str()
+                    .ok_or("input output identity")?
+                    .into(),
+            };
+            // Compose returns the pair but its primary original is the provenance
+            // receipt. Qualify the actual original bytes under the live capability.
+            let primary = state(&self.root, &self.primary)?;
+            let (digest, length) = file_identity(&primary)?;
+            if !owner.published_original(&self.primary, &digest, length)? {
+                return Err("E_INPUT_RETENTION: input original is not sealed".into());
+            }
+            owner.protect_consumer(consumer, std::slice::from_ref(&original))?;
+            Ok(Consumer {
+                schema: "chrono-retention-consumer/v1".into(),
+                consumer: consumer.into(),
+                purpose: "调用方保管输入导出，直到后续使用完成或已交接，并释放此声明".into(),
+                originals: vec![original],
+            })
+        }
+    }
+
+    pub(crate) fn dependencies(root: &Path, output: &str, paths: &[String]) -> Result<(), String> {
+        if let Some(owner) = Inventory::adopted(root)? {
+            owner.dependencies_paths(output, paths)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn blobs(snapshot: &Value) -> Vec<String> {
+        snapshot["files"]
+            .as_object()
+            .into_iter()
+            .flat_map(|files| files.values())
+            .filter_map(|file| file["blob"].as_str().map(str::to_owned))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
+    pub(crate) struct BoundedFile {
+        file: fs::File,
+        remaining: u64,
+    }
+    impl Write for BoundedFile {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() as u64 > self.remaining {
+                return Err(std::io::Error::other(
+                    "E_INPUT_BLOB: source exceeds declared length",
+                ));
+            }
+            let written = self.file.write(bytes)?;
+            self.remaining -= written as u64;
+            Ok(written)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.file.flush()
+        }
+    }
+
+    /// A registered staging allocation survives interruption under the same finite
+    /// owner policy. Unadopted callers retain the ordinary RAII cleanup behavior.
+    pub(crate) struct StagedBlob {
+        pub path: PathBuf,
+        managed: bool,
+        publication: Option<Publication>,
+    }
+    impl Drop for StagedBlob {
+        fn drop(&mut self) {
+            if !self.managed {
+                let _ = fs::remove_file(&self.path);
+            }
+        }
+    }
+    impl StagedBlob {
+        pub fn write(
+            root: &Path,
+            length: u64,
+            write: impl FnOnce(&mut BoundedFile) -> Result<(String, u64), String>,
+        ) -> Result<(Self, String, u64), String> {
+            let directory = state(root, BLOB_DIRECTORY)?;
+            fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+            let path = retention::unique_path(&directory, "input-stage", ".bytes")?;
+            let publication = retention::create_adopted_with_limit(
+                root,
+                "full-original",
+                &path,
+                false,
+                value!({"kind":"input-staging","outcome":"not-established"}),
+                Some(length.max(1)),
+            )?;
+            let mut stage = Self {
+                path,
+                managed: publication.is_some(),
+                publication,
+            };
+            let mut output = BoundedFile {
+                file: fs::OpenOptions::new()
+                    .write(true)
+                    .open(&stage.path)
+                    .map_err(|e| e.to_string())?,
+                remaining: length,
+            };
+            let (digest, copied) = write(&mut output)
+                .map_err(|e| format!("{e}; input staging original: {}", stage.path.display()))?;
+            if copied != length || output.remaining != 0 {
+                return Err(format!(
+                    "E_INPUT_BLOB: source length changed; input staging original: {}",
+                    stage.path.display()
+                ));
+            }
+            output.file.sync_all().map_err(|e| e.to_string())?;
+            if let Some(publication) = stage.publication.take() {
+                publication.complete_sealed(
+                    value!({"kind":"input-staging","sha256":digest,"length":copied}),
+                )?;
+            }
+            Ok((stage, digest, copied))
+        }
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+use chrono_harness::{copy_hashed, facts, file_identity, json, no_symlink_parents, wire};
+#[cfg(not(verus_keep_ghost))]
+pub use chrono_judge_registration::inputs::{
+    SNAPSHOT_SCHEMA, SNAPSHOT_SCHEMA_V2, SNAPSHOT_SCHEMA_V3,
+};
+#[cfg(not(verus_keep_ghost))]
+use chrono_judge_registration::{
+    Registrations,
+    inputs::{Retained, observe_file, retained_shape, snapshot_schema_for, snapshot_shape},
+};
+#[cfg(not(verus_keep_ghost))]
+pub use composition::{Manifest as CompositionManifest, Source as CompositionSource, compose};
+#[cfg(not(verus_keep_ghost))]
+pub use custody::Produced;
+#[cfg(not(verus_keep_ghost))]
+use serde_json::{Value, json as value};
+#[cfg(not(verus_keep_ghost))]
+use std::{
+    fs,
+    io::{Read, Seek, Write},
+    path::{Path, PathBuf},
+};
+#[cfg(not(verus_keep_ghost))]
+const BLOB_DIRECTORY: &str = ".chrono-harness/state/inputs/blobs";
+
+#[cfg(not(verus_keep_ghost))]
+fn state(root: &Path, path: &str) -> Result<PathBuf, String> {
+    if !chrono_harness::verified_paths::valid_host_state_path(path.as_bytes()) {
+        return Err("E_INPUT_PATH: output/reference must be within host state".into());
+    }
+    no_symlink_parents(root, path)
+}
+#[cfg(not(verus_keep_ghost))]
+fn output_path(root: &Path, path: &str) -> Result<PathBuf, String> {
+    let target = state(root, path)?;
+    let parent = target
+        .parent()
+        .ok_or("E_INPUT_OUTPUT_PARENT: missing parent")?;
+    if parent != root.join(".chrono-harness/state") {
+        let metadata = fs::symlink_metadata(parent)
+            .map_err(|e| format!("E_INPUT_OUTPUT_PARENT: {}: {e}", parent.display()))?;
+        if !metadata.is_dir() {
+            return Err(format!(
+                "E_INPUT_OUTPUT_PARENT: {} is not a physical directory",
+                parent.display()
+            ));
+        }
+    }
+    Ok(target)
+}
+#[cfg(not(verus_keep_ghost))]
+fn publish(root: &Path, path: &str, v: &Value) -> Result<(), String> {
+    let bytes = wire::canonical(v)?;
+    publish_bytes(root, path, &bytes)
+}
+#[cfg(not(verus_keep_ghost))]
+fn publish_bytes(root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
+    use chrono_harness::retained_artifacts::retention;
+    let target = output_path(root, path)?;
+    let parent = target.parent().ok_or("snapshot parent")?;
+    if parent == root.join(".chrono-harness/state") {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    if retention::publish_owned_original(
+        root,
+        "full-original",
+        path,
+        bytes,
+        value!({"kind":"input-original","sha256":chrono_harness::sha256(bytes),"length":bytes.len()}),
+    )? {
+        return Ok(());
+    }
+    if target.exists() {
+        if fs::read(&target).map_err(|e| e.to_string())? == bytes {
+            return Ok(());
+        }
+        return Err("E_SNAPSHOT_EXISTS: retain old snapshot; choose a new output path".into());
+    }
+    let mut tmp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    tmp.write_all(bytes).map_err(|e| e.to_string())?;
+    tmp.persist_noclobber(&target).map_err(|e| e.to_string())?;
+    Ok(())
+}
+#[cfg(not(verus_keep_ghost))]
+fn store(root: &Path, input: &Path) -> Result<Value, String> {
+    let _input = input
+        .strip_prefix(root)
+        .ok()
+        .and_then(|path| path.to_str())
+        .map(|path| chrono_harness::retained_artifacts::retention::read_guard(root, path))
+        .transpose()?;
+    if !fs::metadata(input)
+        .map_err(|e| format!("E_INPUT_READ: {}: {e}", input.display()))?
+        .is_file()
+    {
+        return Err("E_INPUT_READ: not a regular file".into());
+    }
+    let mut file =
+        fs::File::open(input).map_err(|e| format!("E_INPUT_READ: {}: {e}", input.display()))?;
+    if !file.metadata().map_err(|e| e.to_string())?.is_file() {
+        return Err("E_INPUT_READ: not a regular file".into());
+    }
+    let length = file.metadata().map_err(|e| e.to_string())?.len();
+    if chrono_harness::retained_artifacts::retention::Inventory::adopted(root)?.is_some() {
+        let (sha256, observed_length) =
+            copy_hashed((&mut file).take(length.saturating_add(1)), std::io::sink())?;
+        if observed_length != length {
+            return Err("E_INPUT_BLOB: source length changed".into());
+        }
+        let path = format!("{BLOB_DIRECTORY}/{sha256}");
+        // The blob owner already reserves before writing and verifies the
+        // bounded source copy. A second managed staging original has no caller.
+        if chrono_harness::retained_artifacts::retention::publish_owned_file(
+            root,
+            "full-original",
+            &path,
+            input,
+            &sha256,
+            length,
+            value!({"kind":"input-blob","sha256":sha256,"length":length}),
+        )
+        .map_err(|e| format!("E_INPUT_BLOB: {e}"))?
+        {
+            return Ok(value!({"blob":path,"sha256":sha256,"length":length}));
+        }
+        file.rewind().map_err(|e| e.to_string())?;
+    }
+    let (stage, sha256, length) =
+        custody::StagedBlob::write(root, length, |output| copy_hashed(file, output))?;
+    publish_blob(root, &stage.path, sha256, length)
+}
+// The caller hashes all bytes written to its private temporary file before publication.
+#[cfg(not(verus_keep_ghost))]
+fn publish_blob(root: &Path, staged: &Path, sha256: String, length: u64) -> Result<Value, String> {
+    let path = format!("{BLOB_DIRECTORY}/{sha256}");
+    let target = state(root, &path)?;
+    if chrono_harness::retained_artifacts::retention::publish_owned_file(
+        root,
+        "full-original",
+        &path,
+        staged,
+        &sha256,
+        length,
+        value!({"kind":"input-blob","sha256":sha256,"length":length}),
+    )
+    .map_err(|e| format!("E_INPUT_BLOB: {e}"))?
+    {
+        return Ok(value!({"blob":path,"sha256":sha256,"length":length}));
+    }
+    if target.exists() {
+        let observed = file_identity(&target)?;
+        if !blob_identity_matches(&observed.0, observed.1, &sha256, length) {
+            return Err("E_INPUT_BLOB: existing content does not match its address".into());
+        }
+    } else if let Err(error) = fs::hard_link(staged, &target) {
+        if error.kind() != std::io::ErrorKind::AlreadyExists {
+            return Err(format!("E_INPUT_BLOB: {error}"));
+        }
+        let observed = file_identity(&target)?;
+        if !blob_identity_matches(&observed.0, observed.1, &sha256, length) {
+            return Err(format!("E_INPUT_BLOB: {error}"));
+        }
+    }
+    Ok(value!({"blob":path,"sha256":sha256,"length":length}))
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn capture(root: &Path, config: &str, commit: &str, output: &str) -> Result<Produced, String> {
+    capture_selected(
+        root,
+        config,
+        commit,
+        output,
+        &chrono_harness::prepared::Selection::All,
+    )
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn capture_selected(
+    root: &Path,
+    config: &str,
+    commit: &str,
+    output: &str,
+    selection: &chrono_harness::prepared::Selection,
+) -> Result<Produced, String> {
+    let read_scope = chrono_harness::retained_artifacts::retention::read_scope(root)?;
+    use chrono_harness::{prepared::Selection, units::Scope};
+    let scope = match selection {
+        Selection::All => None,
+        Selection::Unit { unit } => Some(Scope::Unit { unit: unit.clone() }),
+        Selection::Collect => return Err("E_INPUT_SCOPE: collection consumes original snapshots; it does not capture live inputs".into()),
+    };
+    output_path(root, output)?;
+    let reader = facts::Reader::for_config(root, config)?;
+    reader.verify_config(root, commit)?;
+    reader.verify_oid(root, commit)?;
+    if facts::utf8(reader.git(root, &["rev-parse", "HEAD"])?)?.trim() != commit {
+        return Err("E_SNAPSHOT_IDENTITY: capture requires the explicit checked-out commit".into());
+    }
+    let bytes = reader.blob(root, commit, config)?;
+    if fs::read(no_symlink_parents(root, config)?).map_err(|e| e.to_string())? != bytes {
+        return Err("E_SNAPSHOT_IDENTITY: config differs from the fixed commit".into());
+    }
+    let values = reader.registry_values(root, commit, config)?;
+    let r = Registrations::load(&values, config)?;
+    let required = chrono_judge_registration::inputs::required_files(&r, scope.as_ref())?;
+    let credentials = if r.config()["schema_version"] == 4 {
+        chrono_harness::prepared::credential_environment(r.config())?
+    } else {
+        Default::default()
+    };
+    let mut environment = serde_json::Map::new();
+    for key in r.config()["environment"]["inherit"].as_array().unwrap() {
+        let key = key.as_str().ok_or("invalid inherited variable")?;
+        let v = if credentials.contains(key) {
+            Value::Null
+        } else {
+            match std::env::var(key) {
+                Ok(v) => Value::String(v),
+                Err(std::env::VarError::NotPresent) => Value::Null,
+                Err(_) => return Err(format!("E_INPUT_ENVIRONMENT: non-UTF8 value for {key}")),
+            }
+        };
+        environment.insert(key.into(), v);
+    }
+    let mut files = serde_json::Map::new();
+    for input in r.config()["environment"]["inputs"].as_array().unwrap() {
+        if !required.contains(input["id"].as_str().unwrap()) {
+            continue;
+        }
+        let path = root.join(input["location"].as_str().unwrap());
+        let retained = if matches!(r.config()["schema_version"].as_u64(), Some(2 | 3 | 4)) {
+            match observe_file(&path)? {
+                None => value!({"absent":true}),
+                Some(identity) => {
+                    let observed = store(root, &path)?;
+                    if observed["sha256"] != identity.0 || observed["length"] != identity.1 {
+                        return Err("E_INPUT_READ: input changed during capture".into());
+                    }
+                    observed
+                }
+            }
+        } else {
+            store(root, &path)?
+        };
+        files.insert(input["id"].as_str().unwrap().into(), retained);
+    }
+    let mut snapshot = value!({"schema":snapshot_schema_for(&r),"commit":commit,"config_path":config,"config_digest":wire::digest(r.config())?,"environment":environment,"files":files});
+    if let Some(selection) = r.selection() {
+        snapshot["effective_config_path"] = value!(r.effective_config_path());
+        snapshot["selection"] = selection.clone();
+    }
+    publish(root, output, &snapshot)?;
+    custody::dependencies(root, output, &custody::blobs(&snapshot))?;
+    Produced::new(root, output, snapshot, read_scope)
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn transport(from: &Path, snapshot: &str, to: &Path) -> Result<Value, String> {
+    let _snapshot = chrono_harness::retained_artifacts::retention::read_guard(from, snapshot)?;
+    let bytes = fs::read(state(from, snapshot)?).map_err(|e| e.to_string())?;
+    let mut v = json(&bytes)?;
+    snapshot_shape(&v)?;
+    let files = v["files"]
+        .as_object_mut()
+        .ok_or("E_INPUT_SNAPSHOT: missing files")?;
+    for f in files.values_mut() {
+        let blob = match retained_shape(f)? {
+            Retained::Absent => continue,
+            Retained::Blob { path, .. } => path,
+            Retained::Bytes(_) => {
+                return Err("E_INPUT_BLOB: pair requires captured blob references".into());
+            }
+        };
+        let _blob = chrono_harness::retained_artifacts::retention::read_guard(from, blob)?;
+        let path = state(from, blob)?;
+        let observed = store(to, &path)?;
+        if observed["sha256"] != f["sha256"] || observed["length"] != f["length"] {
+            return Err("E_INPUT_BLOB: retained bytes differ from snapshot".into());
+        }
+        *f = observed;
+    }
+    Ok(v)
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn pair(
+    root: &Path,
+    base_root: &Path,
+    base: &str,
+    candidate_root: &Path,
+    candidate: &str,
+    output: &str,
+) -> Result<Produced, String> {
+    let read_scope = chrono_harness::retained_artifacts::retention::read_scope(root)?;
+    // Source capabilities survive both transports and the destination handoff.
+    let _base = chrono_harness::retained_artifacts::retention::read_scope(base_root)?;
+    let _candidate = chrono_harness::retained_artifacts::retention::read_scope(candidate_root)?;
+    output_path(root, output)?;
+    let a = transport(base_root, base, root)?;
+    let b = transport(candidate_root, candidate, root)?;
+    let v = value!({"base":a,"candidate":b});
+    publish(root, output, &v)?;
+    let mut blobs = custody::blobs(&v["base"]);
+    blobs.extend(custody::blobs(&v["candidate"]));
+    blobs.sort();
+    blobs.dedup();
+    custody::dependencies(root, output, &blobs)?;
+    Produced::new(root, output, v, read_scope)
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
+    let command = match parse_input_command(args)? {
+        InputAction::Version => return Ok(format!("chrono-inputs {}\n", env!("CARGO_PKG_VERSION"))),
+        InputAction::Help => return Ok("chrono-inputs capture --host-root H --config P --commit OID --output P [--unit ID] [--report-consumer ID]\nchrono-inputs pair --host-root H --base-snapshot P --candidate-snapshot P --output P [--base-root H] [--candidate-root H] [--report-consumer ID]\nchrono-inputs compose --host-root H --config P --base OID --candidate OID --manifest P --output P --receipt P [--report-consumer ID]\nAdopted input exports require --report-consumer and return chrono-input-export/v1; the caller releases the returned consumer after use.\nExplicit input transport only; snapshots are not governance verdicts.\n".into()),
+        InputAction::Command(command) => command,
+    };
+    let required = |key: &str| {
+        command
+            .required(key)
+            .map_err(|missing| format!("E_USAGE: missing {}", missing.key))
+    };
+    let root = fs::canonicalize(cwd.join(required("--host-root")?)).map_err(|e| e.to_string())?;
+    let consumer = command.option("--report-consumer");
+    let output = required("--output")?;
+    let primary = match command.kind {
+        InputKind::Compose => required("--receipt")?,
+        _ => output,
+    };
+    let owner = chrono_harness::retained_artifacts::retention::Inventory::adopted(&root)?;
+    if owner.as_ref().is_some_and(|owner| {
+        owner.accepts("full-original", output) || owner.accepts("full-original", primary)
+    }) && consumer.is_none()
+    {
+        return Err("E_INPUT_RETENTION: adopted input export requires --report-consumer ID".into());
+    }
+    if let Some(consumer) = consumer {
+        if consumer.trim().is_empty()
+            || !owner
+                .as_ref()
+                .is_some_and(|owner| owner.accepts("full-original", primary))
+        {
+            return Err("E_INPUT_RETENTION: caller handoff requires a nonempty consumer and adopted primary output".into());
+        }
+    }
+    let result = match command.kind {
+        InputKind::Capture => capture_selected(
+            &root,
+            required("--config")?,
+            required("--commit")?,
+            required("--output")?,
+            &command
+                .option("--unit")
+                .map_or(chrono_harness::prepared::Selection::All, |unit| {
+                    chrono_harness::prepared::Selection::Unit { unit: unit.into() }
+                }),
+        )?,
+        InputKind::Compose => compose(
+            &root,
+            required("--config")?,
+            required("--base")?,
+            required("--candidate")?,
+            required("--manifest")?,
+            required("--output")?,
+            required("--receipt")?,
+        )?,
+        InputKind::Pair => {
+            let location = |key: &str| -> Result<PathBuf, String> {
+                match command.option(key) {
+                    Some(p) => fs::canonicalize(cwd.join(p)).map_err(|e| e.to_string()),
+                    None => Ok(root.clone()),
+                }
+            };
+            pair(
+                &root,
+                &location("--base-root")?,
+                required("--base-snapshot")?,
+                &location("--candidate-root")?,
+                required("--candidate-snapshot")?,
+                required("--output")?,
+            )?
+        }
+    };
+    let result = if let Some(consumer) = consumer {
+        let declaration = result.handoff(consumer)?;
+        value!({"schema":"chrono-input-export/v1","result":result.value,"report_consumer":declaration})
+    } else {
+        result.value.clone()
+    };
+    Ok(serde_json::to_string_pretty(&result).map_err(|e| e.to_string())? + "\n")
+}
