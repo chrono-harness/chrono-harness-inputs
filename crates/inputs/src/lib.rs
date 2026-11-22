@@ -192,7 +192,7 @@ pub fn blob_identity_matches(actual: &str, actual_length: u64,
 
 pub mod composition;
 #[cfg(not(verus_keep_ghost))]
-mod routes;
+mod selection;
 #[cfg(not(verus_keep_ghost))]
 mod custody {
     //! Input callers own their exact output capability until handoff or last use.

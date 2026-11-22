@@ -1055,24 +1055,30 @@ pub fn compose(
     let candidate_values = reader.registry_values(root, candidate, config)?;
     let new = Registrations::load(&candidate_values, config)?;
     let selected = if chrono_harness::units::full_execution_units(new.config())?.is_some() {
-        let delta = facts::delta(&reader.tree(root, base)?, &reader.tree(root, candidate)?);
-        let (impact, findings) = chrono_judge_filemap::produce_for_endpoints(
-            root, base, candidate, &delta, &old, &new, &reader,
-        )?;
-        if findings.iter().any(|f| f.level == "error") {
-            return Err(format!(
-                "E_COMPOSE_SELECTION: {}",
-                serde_json::to_string(&findings).map_err(|e| e.to_string())?
-            ));
+        let path = std::env::var("PATH").map_err(|e| e.to_string())?;
+        let mut environment = std::collections::BTreeMap::new();
+        let credentials = chrono_harness::prepared::credential_environment(new.config())?;
+        for name in new.config()["environment"]["inherit"]
+            .as_array()
+            .ok_or("environment.inherit")?
+        {
+            let name = name.as_str().ok_or("environment key")?;
+            if !credentials.contains(name) {
+                match std::env::var(name) {
+                    Ok(value) => {
+                        environment.insert(name.to_owned(), value);
+                    }
+                    Err(std::env::VarError::NotPresent) => {}
+                    Err(_) => return Err(format!("non UTF-8 inherited variable {name}")),
+                }
+            }
         }
-        let query = value!({
-            "config": config, "base": base_values, "candidate": candidate_values,
-            "tests": impact.tests, "retired_tests": impact.retired_tests
-        });
-        Some(crate::routes::selected_tests(
-            &query,
+        environment.insert("PATH".into(), path);
+        Some(crate::selection::selected_tests(
+            &value!({"config":config,"base":base,"candidate":candidate}),
+            value!({"config":config,"base":base_values,"candidate":candidate_values}),
             &new.config()["protocol"],
-            std::env::var("PATH").map_err(|e| e.to_string())?,
+            &environment,
             |command, stdin| {
                 let process = chrono_harness::run_process(root, command, stdin)?;
                 Ok((

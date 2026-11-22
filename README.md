@@ -6,4 +6,4 @@
 
 [固定来源](https://github.com/ChronoAIProject/chrono-harness/tree/5f6892dfa2f73675a84e4ebdc3b06eb83b824d6e/crates/inputs)
 
-有执行单元的宿主执行 compose 时，inputs 将两端固定登记文档和 FILEMAP 给出的测试 ID 交给已安装的 chrono-judge-routes global-selection。本仓 mise 清单按平台校验路由工具 v0.1.0-alpha.1。查询只读标准输入，退役错误通过 compose 返回。capture、pair 以及没有执行单元的 compose 可单独运行。
+有执行单元的宿主运行 `compose` 时，在 PATH 中安装本仓 mise 清单校验的两个命令。inputs 将固定的 base 和 candidate 提交交给 `chrono-judge-filemap endpoint-tests`，再把它返回的测试和退役测试交给 `chrono-judge-routes global-selection`。登记错误或无法退役的测试会使 compose 失败。capture、pair 和没有执行单元的 compose 可单独运行。
