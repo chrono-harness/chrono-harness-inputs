@@ -1,9 +1,8 @@
 //! Snapshot transport, not dependency discovery or a governance verdict.
 #![allow(unexpected_cfgs)]
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{verified_identifiers as identifiers, verus};
-#[cfg(verus_keep_ghost)]
-pub extern crate chrono_identifiers as identifiers;
+use chrono_harness::verus;
+use vstd::contrib::exec_spec::ExecSpecEq;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
@@ -47,17 +46,17 @@ pub open spec fn input_key_allowed(kind: InputKind, key: Seq<char>) -> bool {
 fn allowed_input_key(kind: InputKind, key: &str) -> (allowed: bool)
     ensures allowed == input_key_allowed(kind, key@),
 {
-    identifiers::equal_text(key, "--host-root") || identifiers::equal_text(key, "--output")
-        || identifiers::equal_text(key, "--report-consumer")
+    <&str>::exec_eq(key, "--host-root") || <&str>::exec_eq(key, "--output")
+        || <&str>::exec_eq(key, "--report-consumer")
         || match kind {
-            InputKind::Capture => identifiers::equal_text(key, "--config")
-                || identifiers::equal_text(key, "--commit") || identifiers::equal_text(key, "--unit"),
-            InputKind::Compose => identifiers::equal_text(key, "--config")
-                || identifiers::equal_text(key, "--base") || identifiers::equal_text(key, "--candidate")
-                || identifiers::equal_text(key, "--manifest") || identifiers::equal_text(key, "--receipt"),
-            InputKind::Pair => identifiers::equal_text(key, "--base-snapshot")
-                || identifiers::equal_text(key, "--candidate-snapshot")
-                || identifiers::equal_text(key, "--base-root") || identifiers::equal_text(key, "--candidate-root"),
+            InputKind::Capture => <&str>::exec_eq(key, "--config")
+                || <&str>::exec_eq(key, "--commit") || <&str>::exec_eq(key, "--unit"),
+            InputKind::Compose => <&str>::exec_eq(key, "--config")
+                || <&str>::exec_eq(key, "--base") || <&str>::exec_eq(key, "--candidate")
+                || <&str>::exec_eq(key, "--manifest") || <&str>::exec_eq(key, "--receipt"),
+            InputKind::Pair => <&str>::exec_eq(key, "--base-snapshot")
+                || <&str>::exec_eq(key, "--candidate-snapshot")
+                || <&str>::exec_eq(key, "--base-root") || <&str>::exec_eq(key, "--candidate-root"),
         }
 }
 
@@ -100,7 +99,7 @@ fn find_input_option(args: &[String], pairs: usize, key: &str) -> (found: Option
             forall|j: int| 0 <= j < i ==> (#[trigger] args@[1 + 2 * j])@ != key@,
         decreases pairs - i,
     {
-        if identifiers::equal_text(args[1 + 2 * i].as_str(), key) { return Some(i); }
+        if <&str>::exec_eq(args[1 + 2 * i].as_str(), key) { return Some(i); }
         i += 1;
     }
     None
@@ -151,11 +150,11 @@ pub fn parse_input_command(args: &[String]) -> (out: Result<InputAction<'_>, Str
 {
     if args.len() == 0 { return Err("E_USAGE: capture or pair required".to_string()); }
     let first = args[0].as_str();
-    if args.len() == 1 && identifiers::equal_text(first, "--version") { return Ok(InputAction::Version); }
-    if args.len() == 1 && identifiers::equal_text(first, "--help") { return Ok(InputAction::Help); }
-    let kind = if identifiers::equal_text(first, "capture") { InputKind::Capture }
-        else if identifiers::equal_text(first, "compose") { InputKind::Compose }
-        else if identifiers::equal_text(first, "pair") { InputKind::Pair }
+    if args.len() == 1 && <&str>::exec_eq(first, "--version") { return Ok(InputAction::Version); }
+    if args.len() == 1 && <&str>::exec_eq(first, "--help") { return Ok(InputAction::Help); }
+    let kind = if <&str>::exec_eq(first, "capture") { InputKind::Capture }
+        else if <&str>::exec_eq(first, "compose") { InputKind::Compose }
+        else if <&str>::exec_eq(first, "pair") { InputKind::Pair }
         else { return Err("E_USAGE: unknown command".to_string()); };
     let pairs = (args.len() - 1) / 2;
     let mut i = 0;
@@ -187,7 +186,7 @@ pub fn blob_identity_matches(actual: &str, actual_length: u64,
     expected: &str, expected_length: u64) -> (matches: bool)
     ensures matches == (actual@ == expected@ && actual_length == expected_length),
 {
-    identifiers::equal_text(actual, expected) && actual_length == expected_length
+    <&str>::exec_eq(actual, expected) && actual_length == expected_length
 }
 }
 

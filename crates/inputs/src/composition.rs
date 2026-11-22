@@ -1,6 +1,4 @@
 //! Offline composition of explicitly addressed original endpoint captures.
-#[cfg(verus_keep_ghost)]
-use super::identifiers;
 #[cfg(not(verus_keep_ghost))]
 use super::*;
 #[cfg(not(verus_keep_ghost))]
@@ -11,6 +9,7 @@ use chrono_harness::{
 #[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+use vstd::contrib::exec_spec::ExecSpecEq;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
@@ -67,7 +66,7 @@ pub fn find_composition_input<R: CompositionInputRows>(rows: &R, expected: &str)
         decreases count - index,
     {
         if let Some(id) = rows.id(index) {
-            if identifiers::equal_text(id, expected) { return Some(index); }
+            if <&str>::exec_eq(id, expected) { return Some(index); }
         }
         assert(!composition_input_matches(rows, index as int, expected@));
         index += 1;
@@ -526,7 +525,7 @@ pub open spec fn optional_text_is(text: Option<&str>, expected: Seq<char>) -> bo
 fn text_is(text: Option<&str>, expected: &str) -> (same: bool)
     ensures same == optional_text_is(text, expected@),
 {
-    match text { Some(text) => identifiers::equal_text(text, expected), None => false, }
+    match text { Some(text) => <&str>::exec_eq(text, expected), None => false, }
 }
 
 pub fn admit_json_original(length: u64) -> (out: Result<(), String>)
@@ -542,7 +541,7 @@ pub fn admit_manifest(schema: &str, count: usize) -> (out: Result<(), String>)
     ensures out.is_ok() == (schema@ == "chrono-input-composition/v1"@ && 0 < count <= 4096),
         match out { Err(error) => error@ == "E_COMPOSE_MANIFEST: schema/count"@, _ => true, },
 {
-    if !identifiers::equal_text(schema, "chrono-input-composition/v1") || count == 0 || count > 4096 {
+    if !<&str>::exec_eq(schema, "chrono-input-composition/v1") || count == 0 || count > 4096 {
         Err("E_COMPOSE_MANIFEST: schema/count".to_string())
     } else { Ok(()) }
 }
@@ -551,7 +550,7 @@ pub fn admit_output_paths(output: &str, receipt: &str) -> (out: Result<(), Strin
     ensures out.is_ok() == (output@ != receipt@),
         match out { Err(error) => error@ == "E_COMPOSE_PATH: output/receipt collision"@, _ => true, },
 {
-    if identifiers::equal_text(output, receipt) {
+    if <&str>::exec_eq(output, receipt) {
         Err("E_COMPOSE_PATH: output/receipt collision".to_string())
     } else { Ok(()) }
 }
@@ -560,7 +559,7 @@ pub fn admit_pair_digest(actual: &str, expected: &str) -> (out: Result<(), Strin
     ensures out.is_ok() == (actual@ == expected@),
         match out { Err(error) => error@ == "E_COMPOSE_ORIGINAL: pair digest differs"@, _ => true, },
 {
-    if identifiers::equal_text(actual, expected) { Ok(()) }
+    if <&str>::exec_eq(actual, expected) { Ok(()) }
     else { Err("E_COMPOSE_ORIGINAL: pair digest differs".to_string()) }
 }
 

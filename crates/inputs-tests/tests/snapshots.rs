@@ -3,13 +3,10 @@
 #[path = "../../inputs/src/lib.rs"]
 mod policy;
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::verified_identifiers as composition_text;
-#[cfg(not(verus_keep_ghost))]
 use chrono_harness::verus;
 #[cfg(not(verus_keep_ghost))]
 use chrono_inputs as policy;
-#[cfg(verus_keep_ghost)]
-use policy::identifiers as composition_text;
+use vstd::contrib::exec_spec::ExecSpecEq;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
@@ -28,7 +25,7 @@ fn fixture_import_lookup(mut trace: CompositionTrace, id: &str)
         out.1 == if id@ == "缺失输入\0\n"@ { None } else { Some(7usize) },
 {
     trace.push((0, 1));
-    let declared = if composition_text::equal_text(id, "缺失输入\0\n") { None }
+    let declared = if <&str>::exec_eq(id, "缺失输入\0\n") { None }
         else { Some(7) };
     (trace, declared)
 }
@@ -261,18 +258,18 @@ fn composition_import_files_case(stop: usize, failure: u8)
     match result {
         Ok(()) => { assert(failure == 0); if failure != 0 { panic!(); } },
         Err(CompositionImportError::Unregistered(id)) => {
-            let same = composition_text::equal_text(id, rows[stop].0);
+            let same = <&str>::exec_eq(id, rows[stop].0);
             assert(failure == 1 && same);
             if failure != 1 || !same { panic!(); }
         },
         Err(CompositionImportError::Blob(error)) => {
-            let same = composition_text::equal_text(error.as_str(), "blob 原错\0\n");
+            let same = <&str>::exec_eq(error.as_str(), "blob 原错\0\n");
             assert(failure == 2 && same);
             if failure != 2 || !same { panic!(); }
         },
         Err(CompositionImportError::Admission(id, error)) => {
-            let same_id = composition_text::equal_text(id, rows[stop].0);
-            let same_error = composition_text::equal_text(error.as_str(), "admission 原错\0\n");
+            let same_id = <&str>::exec_eq(id, rows[stop].0);
+            let same_error = <&str>::exec_eq(error.as_str(), "admission 原错\0\n");
             assert(failure == 3 && same_id && same_error);
             if failure != 3 || !same_id || !same_error { panic!(); }
         },
@@ -307,7 +304,7 @@ fn fixture_import_render(parts: [&str; 6], expected: [&str; 6], message: &str) -
         invariant i <= 6, forall|j: int| 0 <= j < 6 ==> parts@[j]@ == expected@[j]@,
         decreases 6 - i,
     {
-        let same = composition_text::equal_text(parts[i], expected[i]);
+        let same = <&str>::exec_eq(parts[i], expected[i]);
         assert(same);
         if !same { panic!(); }
         i += 1;
@@ -340,10 +337,10 @@ fn composition_import_error_messages_keep_full_endpoint_id_and_suffix() {
             fixture_import_render(parts, ["E_COMPOSE_INPUT: ", "candidate", " ",
                 "admission 原错\0\n", " ", ""], "E_COMPOSE_INPUT: candidate admission 原错\0\n ")
         });
-    let same_unregistered = composition_text::equal_text(unregistered.as_str(),
+    let same_unregistered = <&str>::exec_eq(unregistered.as_str(),
         "E_COMPOSE_INPUT: 端点\0\n unregistered 输入\0\n");
-    let same_blob = composition_text::equal_text(blob.as_str(), "blob 原错\0\n");
-    let same_admission = composition_text::equal_text(admission.as_str(),
+    let same_blob = <&str>::exec_eq(blob.as_str(), "blob 原错\0\n");
+    let same_admission = <&str>::exec_eq(admission.as_str(),
         "E_COMPOSE_INPUT: candidate admission 原错\0\n ");
     assert(same_unregistered && same_blob && same_admission);
     if !same_unregistered || !same_blob || !same_admission { panic!(); }
@@ -515,7 +512,7 @@ fn composition_merge_files_error_case(existing: bool) {
     else { fixture_merge_trace(&[17, 29], state.as_slice()); }
     match result {
         Err(CompositionMergeError::Files(error)) => {
-            let same = composition_text::equal_text(error.as_str(), "snapshot files 原错\0\n");
+            let same = <&str>::exec_eq(error.as_str(), "snapshot files 原错\0\n");
             assert(same);
             if !same { panic!(); }
         },
@@ -641,7 +638,7 @@ fn composition_merge_file_case(first: u64, second: u64, third: u64) {
                 assert(endpoint == CompositionEndpoint::Candidate);
                 if !matches!(endpoint, CompositionEndpoint::Candidate) { panic!(); }
                 let expected = if first == 0 { "首\0\n" } else if second == 0 { "" } else { "末\0\n" };
-                let same = composition_text::equal_text(id, expected);
+                let same = <&str>::exec_eq(id, expected);
                 assert(same);
                 if !same { panic!(); }
             },
@@ -805,7 +802,7 @@ fn input_parse_error(args: &[String], expected: &str)
 {
     match policy::parse_input_command(args) {
         Err(error) => {
-            let same = composition_text::equal_text(error.as_str(), expected);
+            let same = <&str>::exec_eq(error.as_str(), expected);
             assert(same);
             if !same { panic!(); }
         },
@@ -923,7 +920,7 @@ fn input_value(command: &policy::InputCommand, key: &str, expected: &str, index:
 {
     match command.required(key) {
         Ok(value) => {
-            let same = composition_text::equal_text(value, expected);
+            let same = <&str>::exec_eq(value, expected);
             assert(same);
             if !same { panic!(); }
         },
@@ -941,7 +938,7 @@ fn input_missing(command: &policy::InputCommand, key: &str)
     if !absent { panic!(); }
     match command.required(key) {
         Err(missing) => {
-            let same = composition_text::equal_text(missing.key, key);
+            let same = <&str>::exec_eq(missing.key, key);
             assert(same);
             if !same { panic!(); }
         },
@@ -1088,7 +1085,7 @@ fn composition_result(result: Result<(), String>, success: bool, expected: &str)
 {
     let matches = match result {
         Ok(()) => success,
-        Err(error) => !success && composition_text::equal_text(error.as_str(), expected),
+        Err(error) => !success && <&str>::exec_eq(error.as_str(), expected),
     };
     assert(matches);
     if !matches { panic!(); }
