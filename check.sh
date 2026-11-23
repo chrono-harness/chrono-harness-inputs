@@ -7,7 +7,7 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
 cargo fmt --check --manifest-path crates/inputs/Cargo.toml
 cargo build --locked --manifest-path crates/inputs/Cargo.toml
 cargo fmt --check --manifest-path crates/inputs-tests/Cargo.toml
-cargo test --locked --manifest-path crates/inputs-tests/Cargo.toml
+CHRONO_INPUTS_BIN="$(cd "$CARGO_TARGET_DIR" && pwd -P)/debug/chrono-inputs" cargo test --locked --manifest-path crates/inputs-tests/Cargo.toml
 prove() {
   local label=$1 root=$2
   local output="$scratch/$label.rlib"
