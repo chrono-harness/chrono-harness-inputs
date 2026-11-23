@@ -6,7 +6,7 @@ fn pairs_stored_inputs_with_an_empty_tool_search_path() {
     let fixture = tempfile::tempdir().unwrap();
     let root = fixture.path();
     let bytes = b"offline input\0\xff";
-    let digest = chrono_harness::sha256(bytes);
+    let digest = "c168483cfd5092329b33e18921c9911d828ad34b1b94c376e0dcab35cde50d46";
     let blob = format!(".chrono-harness/state/inputs/blobs/{digest}");
     let snapshot = |endpoint: &str, oid: &str| {
         let host = root.join(endpoint);

@@ -1,5 +1,4 @@
-#[path = "../../inputs/src/selection.rs"]
-mod selection;
+use chrono_inputs::test_support as selection;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 

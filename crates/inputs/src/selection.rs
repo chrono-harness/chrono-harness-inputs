@@ -12,7 +12,7 @@ struct FilemapSelection {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct CapturePlan {
+pub struct CapturePlan {
     pub schema: String,
     pub effective_config: String,
     pub selection: Option<Value>,
@@ -20,7 +20,7 @@ pub(crate) struct CapturePlan {
 }
 
 /// Ask registration to interpret the same fixed documents held by capture.
-pub(crate) fn capture_plan(
+pub fn capture_plan(
     config: &str,
     documents: &BTreeMap<String, Value>,
     unit: Option<&str>,
@@ -47,7 +47,7 @@ pub(crate) fn capture_plan(
     Ok(reply)
 }
 
-pub(crate) fn selected_tests(
+pub fn selected_tests(
     commits: &Value,
     mut registries: Value,
     protocol: &Value,
