@@ -2,10 +2,7 @@
 #[cfg(not(verus_keep_ghost))]
 use super::*;
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{
-    prepared::{ArtifactTransport, Original},
-    retained_artifacts, sha256,
-};
+use crate::files::sha256;
 #[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -851,6 +848,21 @@ impl CompositionInputRows for Vec<Value> {
 #[cfg(not(verus_keep_ghost))]
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct Original {
+    pub path: String,
+    pub sha256: String,
+}
+#[cfg(not(verus_keep_ghost))]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactTransport {
+    pub source_directory: String,
+    pub directory: String,
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Source {
     pub pair: Original,
     #[serde(default)]
@@ -866,28 +878,21 @@ pub struct Manifest {
     pub sources: Vec<Source>,
 }
 #[cfg(not(verus_keep_ghost))]
-fn bounded(root: &Path, path: &str) -> Result<Vec<u8>, String> {
-    let _input = retained_artifacts::retention::read_guard(root, path)?;
+fn bounded(root: &Store, path: &str) -> Result<Vec<u8>, String> {
+    root.retain(path)?;
     let p = no_symlink_parents(root, path)?;
     admit_json_original(fs::metadata(&p).map_err(|e| e.to_string())?.len())?;
     fs::read(p).map_err(|e| e.to_string())
 }
 #[cfg(not(verus_keep_ghost))]
-fn source_bytes(root: &Path, source: &Source) -> Result<Vec<u8>, String> {
-    let raw = if let Some(a) = &source.artifacts {
-        retained_artifacts::bytes(root, a, &source.pair.path, source.transport.as_ref())?
-    } else {
-        return chrono_harness::prepared::read_original(
-            root,
-            &source.pair,
-            source.transport.as_ref(),
-        );
-    };
+fn source_bytes(root: &Store, source: &Source) -> Result<Vec<u8>, String> {
+    let original:String=root.call(value!({"operation":"read-original","original":source.pair,"transport":source.transport,"artifacts":source.artifacts}))?;
+    let raw = original.into_bytes();
     admit_pair_digest(&sha256(&raw), &source.pair.sha256)?;
     Ok(raw)
 }
 #[cfg(not(verus_keep_ghost))]
-fn import_blob(root: &Path, f: &Value, source: &Source) -> Result<Value, String> {
+fn import_blob(root: &Store, f: &Value, source: &Source) -> Result<Value, String> {
     let Some((path, digest, length)) =
         captured_blob(f, "E_COMPOSE_ORIGINAL: capture blob reference required")?
     else {
@@ -898,8 +903,8 @@ fn import_blob(root: &Path, f: &Value, source: &Source) -> Result<Value, String>
             path: path.into(),
             sha256: digest.into(),
         };
-        let p = chrono_harness::prepared::original_path(&original, source.transport.as_ref())?;
-        let _input = retained_artifacts::retention::read_guard(root, &p)?;
+        let p = root.call::<String>(value!({"operation":"resolve-original","original":original,"transport":source.transport}))?;
+        root.retain(&p)?;
         let observed = store(root, &no_symlink_parents(root, &p)?)?;
         admit_imported_blob(
             observed["sha256"].as_str(),
@@ -909,16 +914,15 @@ fn import_blob(root: &Path, f: &Value, source: &Source) -> Result<Value, String>
         )?;
         return Ok(observed);
     };
-    let (stage, actual, copied) = custody::StagedBlob::write(root, length, |output| {
-        retained_artifacts::copy_to(root, a, path, source.transport.as_ref(), output)
-    })?;
+    let (stage, actual, copied) =
+        custody::StagedBlob::copy_original(root, length, a, path, source.transport.as_ref())?;
     admit_imported_blob(Some(&actual), Some(copied), digest, length)?;
     publish_blob(root, &stage.path, actual, copied)
 }
 #[cfg(not(verus_keep_ghost))]
-fn manifest(root: &Path, path: &str) -> Result<(Vec<u8>, Manifest), String> {
+fn manifest(root: &Store, path: &str) -> Result<(Vec<u8>, Manifest), String> {
     let raw = bounded(root, path)?;
-    let manifest: Manifest = chrono_harness::decode(&raw)?;
+    let manifest: Manifest = crate::files::decode(&raw)?;
     admit_manifest(&manifest.schema, manifest.sources.len())?;
     Ok((raw, manifest))
 }
@@ -926,6 +930,7 @@ fn manifest(root: &Path, path: &str) -> Result<(Vec<u8>, Manifest), String> {
 #[cfg(not(verus_keep_ghost))]
 pub(crate) struct SnapshotEndpoint<'a> {
     config: &'a Value,
+    profile: crate::selection::InputProfile,
     effective_path: &'a str,
     selection: Option<&'a Value>,
     schema: &'static str,
@@ -935,13 +940,18 @@ pub(crate) struct SnapshotEndpoint<'a> {
 
 #[cfg(not(verus_keep_ghost))]
 impl<'a> SnapshotEndpoint<'a> {
-    pub(crate) fn from_snapshot(snapshot: &'a facts::RegistrySnapshot) -> Result<Self, String> {
+    pub(crate) fn from_snapshot(
+        root: &Path,
+        snapshot: &'a crate::selection::Endpoint,
+        inspect: bool,
+    ) -> Result<Self, String> {
         let config = snapshot
             .values
             .get(&snapshot.effective_path)
             .ok_or("missing effective config")?;
         Self::from_config(
             config,
+            crate::selection::input_profile(root, config, inspect)?,
             &snapshot.effective_path,
             snapshot.selection.as_ref(),
         )
@@ -949,6 +959,7 @@ impl<'a> SnapshotEndpoint<'a> {
 
     fn from_config(
         config: &'a Value,
+        profile: crate::selection::InputProfile,
         effective_path: &'a str,
         selection: Option<&'a Value>,
     ) -> Result<Self, String> {
@@ -986,6 +997,7 @@ impl<'a> SnapshotEndpoint<'a> {
         }
         Ok(Self {
             config,
+            profile,
             effective_path,
             selection,
             schema: if selection.is_some() {
@@ -1005,7 +1017,7 @@ impl<'a> SnapshotEndpoint<'a> {
 /// A source is an original snapshot at either endpoint or an exact endpoint pair.
 #[cfg(not(verus_keep_ghost))]
 fn import_source(
-    root: &Path,
+    root: &Store,
     source: &Source,
     config: &str,
     base: &str,
@@ -1066,7 +1078,11 @@ fn import_source(
             r.effective_path,
         )
         .map_err(|error| format!("E_COMPOSE_HEADER: {name} {error}"))?;
-        crate::snapshot::bind_environment(r.config, &snapshot["environment"])?;
+        crate::snapshot::bind_environment(
+            &r.profile.credential_environment,
+            r.config,
+            &snapshot["environment"],
+        )?;
         pair[name] = snapshot.clone();
         let files: Vec<_> = snapshot["files"]
             .as_object()
@@ -1116,20 +1132,26 @@ pub fn compose(
     output: &str,
     receipt: &str,
 ) -> Result<Produced, String> {
-    let read_scope = retained_artifacts::retention::read_scope(root)?;
+    let ownership = Store::open(root)?;
+    let root = &ownership;
     output_path(root, output)?;
     output_path(root, receipt)?;
     admit_output_paths(output, receipt)?;
     let (raw, manifest) = manifest(root, manifest_path)?;
-    let reader = facts::Reader::for_config(root, config)?;
-    let base_snapshot = reader.registry_snapshot(root, base, config)?;
-    let old = SnapshotEndpoint::from_snapshot(&base_snapshot)?;
-    let candidate_snapshot = reader.registry_snapshot(root, candidate, config)?;
-    let new = SnapshotEndpoint::from_snapshot(&candidate_snapshot)?;
-    let collection_inputs = if chrono_harness::units::full_execution_units(new.config)?.is_some() {
+    let [base_snapshot, candidate_snapshot]: [crate::selection::Endpoint; 2] =
+        crate::selection::endpoints(root, config, base, candidate, false)?
+            .try_into()
+            .map_err(|_| "missing composition endpoint")?;
+    let old = SnapshotEndpoint::from_snapshot(root, &base_snapshot, false)?;
+    let new = SnapshotEndpoint::from_snapshot(root, &candidate_snapshot, true)?;
+    let collection_inputs = if new
+        .profile
+        .has_execution_units
+        .ok_or("missing execution unit projection")?
+    {
         let path = std::env::var("PATH").map_err(|e| e.to_string())?;
         let mut environment = std::collections::BTreeMap::new();
-        let credentials = chrono_harness::prepared::credential_environment(new.config)?;
+        let credentials = &new.profile.credential_environment;
         for name in new.config["environment"]["inherit"]
             .as_array()
             .ok_or("environment.inherit")?
@@ -1147,13 +1169,8 @@ pub fn compose(
         }
         environment.insert("PATH".into(), path);
         let mut registries = value!({"config":config,"base":base_snapshot.values,"candidate":candidate_snapshot.values});
-        let mut invoke = |command: &chrono_harness::CommandSpec, stdin: &[u8]| {
-            let process = chrono_harness::run_process(root, command, stdin)?;
-            Ok((
-                process.exit_code,
-                process.stdout_bytes,
-                process.stderr_bytes,
-            ))
+        let mut invoke = |command: &crate::command::CommandSpec, stdin: &[u8]| {
+            crate::command::run(root, command, stdin)
         };
         let selected = crate::selection::selected_tests(
             &value!({"config":config,"base":base,"candidate":candidate}),
@@ -1262,7 +1279,7 @@ pub fn compose(
     blobs.extend(custody::blobs(&pair["candidate"]));
     blobs.sort();
     blobs.dedup();
-    custody::dependencies(root, output, &blobs)?;
+    root.dependencies(output, &blobs)?;
     let provenance = value!({"schema":"chrono-input-composition-result/v1","manifest":{"path":manifest_path,"sha256":sha256(&raw)},"base":base,"candidate":candidate,"config_path":config,"output":{"path":output,"sha256":sha256(&wire::canonical(&pair)?)},"originals":originals,"completeness_proven":false});
     publish(root, receipt, &provenance)?;
     let mut dependencies = vec![output.to_owned(), manifest_path.to_owned()];
@@ -1273,6 +1290,6 @@ pub fn compose(
             .iter()
             .filter_map(|original| original["retained"]["path"].as_str().map(str::to_owned)),
     );
-    custody::dependencies(root, receipt, &dependencies)?;
-    Produced::new(root, receipt, pair, read_scope)
+    root.dependencies(receipt, &dependencies)?;
+    Produced::new(root, receipt, pair)
 }

@@ -1,6 +1,6 @@
 //! Wire format accepted by offline input transport.
-use super::{facts, wire};
-use chrono_harness::{relative_path, verified_paths::valid_host_state_path};
+use super::files as wire;
+use super::files::{relative_path, valid_host_state_path};
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
@@ -93,7 +93,7 @@ fn file(value: &Value, absence_allowed: bool) -> Result<(), String> {
             fields(value, &["blob", "sha256", "length"], &[], context)?;
             if !blob
                 .as_str()
-                .is_some_and(|path| valid_host_state_path(path.as_bytes()))
+                .is_some_and(|path| valid_host_state_path(path))
             {
                 return Err("E_INPUT_BLOB: reference must be within host state".into());
             }
@@ -134,7 +134,7 @@ pub fn snapshot_shape(value: &Value) -> Result<(), String> {
         }
         _ => return Err("E_INPUT_SNAPSHOT: unsupported snapshot schema".into()),
     }
-    facts::full_oid(
+    wire::full_oid(
         value["commit"]
             .as_str()
             .ok_or("E_INPUT_SNAPSHOT: invalid commit")?,
@@ -169,7 +169,11 @@ pub fn snapshot_shape(value: &Value) -> Result<(), String> {
 }
 
 /// Compose binds captured values to the endpoint and does not materialize a process environment.
-pub(crate) fn bind_environment(config: &Value, captured: &Value) -> Result<(), String> {
+pub(crate) fn bind_environment(
+    credentials: &BTreeSet<String>,
+    config: &Value,
+    captured: &Value,
+) -> Result<(), String> {
     let env = &config["environment"];
     let values = env["values"].as_object().ok_or("environment values")?;
     if values
@@ -196,11 +200,6 @@ pub(crate) fn bind_environment(config: &Value, captured: &Value) -> Result<(), S
             return Err(format!("unregistered retained environment variable {key}"));
         }
     }
-    let credentials = if config["schema_version"] == 4 {
-        chrono_harness::prepared::credential_environment(config)?
-    } else {
-        Default::default()
-    };
     for key in inherited {
         if credentials.contains(key) && captured.get(key) != Some(&Value::Null) {
             return Err(
