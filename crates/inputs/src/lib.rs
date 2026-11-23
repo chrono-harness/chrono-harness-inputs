@@ -196,6 +196,7 @@ mod selection;
 #[cfg(all(feature = "test-support", not(verus_keep_ghost)))]
 pub mod test_support {
     pub use crate::selection::{capture_plan, selected_tests};
+    pub use crate::snapshot::snapshot_shape;
 }
 #[cfg(not(verus_keep_ghost))]
 mod custody {
@@ -406,20 +407,17 @@ use chrono_harness::{
     copy_hashed, facts, file_identity, input_file::observe_file, json, no_symlink_parents, wire,
 };
 #[cfg(not(verus_keep_ghost))]
-pub use chrono_judge_registration::inputs::{
-    SNAPSHOT_SCHEMA, SNAPSHOT_SCHEMA_V2, SNAPSHOT_SCHEMA_V3,
-};
-#[cfg(not(verus_keep_ghost))]
-use chrono_judge_registration::{
-    Registrations,
-    inputs::{snapshot_schema_for, snapshot_shape},
-};
+mod snapshot;
 #[cfg(not(verus_keep_ghost))]
 pub use composition::{Manifest as CompositionManifest, Source as CompositionSource, compose};
 #[cfg(not(verus_keep_ghost))]
 pub use custody::Produced;
 #[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json as value};
+#[cfg(not(verus_keep_ghost))]
+use snapshot::snapshot_shape;
+#[cfg(not(verus_keep_ghost))]
+pub use snapshot::{SNAPSHOT_SCHEMA, SNAPSHOT_SCHEMA_V2, SNAPSHOT_SCHEMA_V3};
 #[cfg(not(verus_keep_ghost))]
 use std::{
     fs,
