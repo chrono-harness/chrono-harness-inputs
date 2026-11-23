@@ -402,7 +402,9 @@ mod custody {
 }
 
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{copy_hashed, facts, file_identity, json, no_symlink_parents, wire};
+use chrono_harness::{
+    copy_hashed, facts, file_identity, input_file::observe_file, json, no_symlink_parents, wire,
+};
 #[cfg(not(verus_keep_ghost))]
 pub use chrono_judge_registration::inputs::{
     SNAPSHOT_SCHEMA, SNAPSHOT_SCHEMA_V2, SNAPSHOT_SCHEMA_V3,
@@ -410,7 +412,7 @@ pub use chrono_judge_registration::inputs::{
 #[cfg(not(verus_keep_ghost))]
 use chrono_judge_registration::{
     Registrations,
-    inputs::{Retained, observe_file, retained_shape, snapshot_schema_for, snapshot_shape},
+    inputs::{snapshot_schema_for, snapshot_shape},
 };
 #[cfg(not(verus_keep_ghost))]
 pub use composition::{Manifest as CompositionManifest, Source as CompositionSource, compose};
@@ -670,6 +672,25 @@ pub fn capture_selected(
     Produced::new(root, output, snapshot, read_scope)
 }
 
+/// Transport reads references only after snapshot_shape has admitted every record.
+#[cfg(not(verus_keep_ghost))]
+fn captured_blob<'a>(
+    file: &'a Value,
+    inline_error: &str,
+) -> Result<Option<(&'a str, &'a str, u64)>, String> {
+    if file["absent"] == true {
+        return Ok(None);
+    }
+    let path = file["blob"].as_str().ok_or(inline_error)?;
+    let digest = file["sha256"]
+        .as_str()
+        .ok_or("missing captured file digest")?;
+    let length = file["length"]
+        .as_u64()
+        .ok_or("missing captured file length")?;
+    Ok(Some((path, digest, length)))
+}
+
 #[cfg(not(verus_keep_ghost))]
 fn transport(from: &Path, snapshot: &str, to: &Path) -> Result<Value, String> {
     let _snapshot = chrono_harness::retained_artifacts::retention::read_guard(from, snapshot)?;
@@ -680,17 +701,15 @@ fn transport(from: &Path, snapshot: &str, to: &Path) -> Result<Value, String> {
         .as_object_mut()
         .ok_or("E_INPUT_SNAPSHOT: missing files")?;
     for f in files.values_mut() {
-        let blob = match retained_shape(f)? {
-            Retained::Absent => continue,
-            Retained::Blob { path, .. } => path,
-            Retained::Bytes(_) => {
-                return Err("E_INPUT_BLOB: pair requires captured blob references".into());
-            }
+        let Some((blob, digest, length)) =
+            captured_blob(f, "E_INPUT_BLOB: pair requires captured blob references")?
+        else {
+            continue;
         };
         let _blob = chrono_harness::retained_artifacts::retention::read_guard(from, blob)?;
         let path = state(from, blob)?;
         let observed = store(to, &path)?;
-        if observed["sha256"] != f["sha256"] || observed["length"] != f["length"] {
+        if observed["sha256"] != digest || observed["length"] != length {
             return Err("E_INPUT_BLOB: retained bytes differ from snapshot".into());
         }
         *f = observed;

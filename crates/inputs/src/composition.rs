@@ -888,16 +888,10 @@ fn source_bytes(root: &Path, source: &Source) -> Result<Vec<u8>, String> {
 }
 #[cfg(not(verus_keep_ghost))]
 fn import_blob(root: &Path, f: &Value, source: &Source) -> Result<Value, String> {
-    let (path, digest, length) = match retained_shape(f)? {
-        Retained::Blob {
-            path,
-            digest,
-            length,
-        } => (path, digest, length),
-        Retained::Absent => return Ok(f.clone()),
-        Retained::Bytes(_) => {
-            return Err("E_COMPOSE_ORIGINAL: capture blob reference required".into());
-        }
+    let Some((path, digest, length)) =
+        captured_blob(f, "E_COMPOSE_ORIGINAL: capture blob reference required")?
+    else {
+        return Ok(f.clone());
     };
     let Some(a) = &source.artifacts else {
         let original = Original {

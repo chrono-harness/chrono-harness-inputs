@@ -73,4 +73,23 @@ fn pairs_stored_inputs_with_an_empty_tool_search_path() {
             .contains("E_INPUT_BLOB: retained bytes differ from snapshot")
     );
     assert!(!destination.join(rejected).exists());
+
+    let mut inline = base;
+    inline["files"] = json!({"a":{"bytes":[0,255]}});
+    let base_path = root.join("base/.chrono-harness/state/input.json");
+    fs::write(&base_path, inline.to_string()).unwrap();
+    let result = run(rejected);
+    assert_eq!(result.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&result.stderr)
+            .contains("E_INPUT_BLOB: pair requires captured blob references")
+    );
+
+    // Admit the entire snapshot before importing even its first file.
+    inline["files"]["z"] = json!({"absent":false});
+    fs::write(base_path, inline.to_string()).unwrap();
+    let result = run(rejected);
+    assert_eq!(result.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("E_INPUT_BLOB: absent must be true"));
+    assert!(!destination.join(rejected).exists());
 }
