@@ -3,10 +3,10 @@
 #[path = "../../inputs/src/lib.rs"]
 mod policy;
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::verus;
-#[cfg(not(verus_keep_ghost))]
 use chrono_inputs as policy;
 use vstd::contrib::exec_spec::ExecSpecEq;
+#[cfg(not(verus_keep_ghost))]
+use vstd::prelude::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]

@@ -193,6 +193,10 @@ pub fn blob_identity_matches(actual: &str, actual_length: u64,
 pub mod composition;
 #[cfg(not(verus_keep_ghost))]
 mod selection;
+#[cfg(all(feature = "test-support", not(verus_keep_ghost)))]
+pub mod test_support {
+    pub use crate::selection::{capture_plan, selected_tests};
+}
 #[cfg(not(verus_keep_ghost))]
 mod custody {
     //! Input callers own their exact output capability until handoff or last use.

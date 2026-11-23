@@ -101,7 +101,6 @@ dependencies = [
 name = "chrono-inputs-tests"
 version = "0.1.0"
 dependencies = [
- "chrono-harness",
  "chrono-inputs",
  "serde",
  "serde_json",
