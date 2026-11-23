@@ -1,7 +1,7 @@
 //! Snapshot transport, not dependency discovery or a governance verdict.
 #![allow(unexpected_cfgs)]
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::verus;
+use verus_builtin_macros::verus;
 use vstd::contrib::exec_spec::ExecSpecEq;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
@@ -190,29 +190,31 @@ pub fn blob_identity_matches(actual: &str, actual_length: u64,
 }
 }
 
+#[cfg(not(verus_keep_ghost))]
+mod artifacts;
+#[cfg(not(verus_keep_ghost))]
+mod command;
+#[cfg(not(verus_keep_ghost))]
+use artifacts::Store;
 pub mod composition;
 #[cfg(not(verus_keep_ghost))]
 mod selection;
 #[cfg(all(feature = "test-support", not(verus_keep_ghost)))]
 pub mod test_support {
-    pub use crate::selection::{capture_plan, selected_tests};
+    pub use crate::selection::{Endpoint, capture_plan, selected_tests};
     pub use crate::snapshot::snapshot_shape;
 }
 #[cfg(not(verus_keep_ghost))]
 mod custody {
     //! Input callers own their exact output capability until handoff or last use.
     use super::*;
-    use chrono_harness::retained_artifacts::retention::{
-        self, Consumer, Inventory, OriginalIdentity, Publication, ReadScope,
-    };
 
     /// Keep this value alive while using its retained paths. Serialization copies
     /// the snapshot, not its ownership; a different process needs an explicit handoff.
     pub struct Produced {
         pub(crate) value: Value,
-        root: PathBuf,
+        root: Store,
         primary: String,
-        _scope: ReadScope,
     }
 
     impl std::ops::Deref for Produced {
@@ -247,66 +249,16 @@ mod custody {
         }
     }
     impl Produced {
-        pub(crate) fn new(
-            root: &Path,
-            primary: &str,
-            value: Value,
-            scope: ReadScope,
-        ) -> Result<Self, String> {
+        pub(crate) fn new(root: &Store, primary: &str, value: Value) -> Result<Self, String> {
             Ok(Self {
-                value,
-                root: fs::canonicalize(root).map_err(|e| e.to_string())?,
+                root: root.clone(),
                 primary: primary.into(),
-                _scope: scope,
+                value,
             })
         }
-
-        /// The named caller accepts the primary original and its declared closure.
-        /// It releases this declaration through the existing retention interface
-        /// after its actual downstream use or durable handoff has finished.
-        pub fn handoff(&self, consumer: &str) -> Result<Consumer, String> {
-            let owner = Inventory::adopted(&self.root)?
-                .ok_or("E_INPUT_RETENTION: caller handoff requires adopted retention")?;
-            let status = owner.producer_status("full-original", Some(&self.primary))?;
-            let records = status["records"]
-                .as_array()
-                .ok_or("input producer status")?;
-            let [record] = records.as_slice() else {
-                return Err(
-                    "E_INPUT_RETENTION: existing unknown output requires its original custodian"
-                        .into(),
-                );
-            };
-            let original = OriginalIdentity {
-                id: record["id"].as_str().ok_or("input output id")?.into(),
-                path: self.primary.clone(),
-                identity: record["identity"]
-                    .as_str()
-                    .ok_or("input output identity")?
-                    .into(),
-            };
-            // Compose returns the pair but its primary original is the provenance
-            // receipt. Qualify the actual original bytes under the live capability.
-            let primary = state(&self.root, &self.primary)?;
-            let (digest, length) = file_identity(&primary)?;
-            if !owner.published_original(&self.primary, &digest, length)? {
-                return Err("E_INPUT_RETENTION: input original is not sealed".into());
-            }
-            owner.protect_consumer(consumer, std::slice::from_ref(&original))?;
-            Ok(Consumer {
-                schema: "chrono-retention-consumer/v1".into(),
-                consumer: consumer.into(),
-                purpose: "调用方保管输入导出，直到后续使用完成或已交接，并释放此声明".into(),
-                originals: vec![original],
-            })
+        pub fn handoff(&self, consumer: &str) -> Result<Value, String> {
+            self.root.call(value!({"operation":"protect-consumer","producer":"full-original","path":self.primary,"consumer":consumer,"purpose":"调用方保管输入导出，直到后续使用完成或已交接，并释放此声明"}))
         }
-    }
-
-    pub(crate) fn dependencies(root: &Path, output: &str, paths: &[String]) -> Result<(), String> {
-        if let Some(owner) = Inventory::adopted(root)? {
-            owner.dependencies_paths(output, paths)?;
-        }
-        Ok(())
     }
 
     pub(crate) fn blobs(snapshot: &Value) -> Vec<String> {
@@ -342,10 +294,15 @@ mod custody {
 
     /// A registered staging allocation survives interruption under the same finite
     /// owner policy. Unadopted callers retain the ordinary RAII cleanup behavior.
+    #[derive(serde::Deserialize)]
+    struct Stage {
+        path: PathBuf,
+        managed: bool,
+    }
     pub(crate) struct StagedBlob {
         pub path: PathBuf,
         managed: bool,
-        publication: Option<Publication>,
+        owner: Store,
     }
     impl Drop for StagedBlob {
         fn drop(&mut self) {
@@ -355,26 +312,52 @@ mod custody {
         }
     }
     impl StagedBlob {
+        pub(crate) fn copy_original(
+            root: &Store,
+            length: u64,
+            artifacts: &Value,
+            original: &str,
+            transport: Option<&composition::ArtifactTransport>,
+        ) -> Result<(Self, String, u64), String> {
+            fs::create_dir_all(state(root, BLOB_DIRECTORY)?).map_err(|e| e.to_string())?;
+            let selected:Stage=root.call(value!({"operation":"new-stage","producer":"full-original","directory":BLOB_DIRECTORY,"prefix":"input-stage","suffix":".bytes","length":length,"outcome":{"kind":"input-staging","outcome":"not-established"}}))?;
+            let stage = Self {
+                path: selected.path,
+                managed: selected.managed,
+                owner: root.clone(),
+            };
+            #[derive(serde::Deserialize)]
+            struct Identity {
+                sha256: String,
+                length: u64,
+            }
+            let identity:Identity = root.call(value!({"operation":"copy-original","path":original,"transport":transport,"artifacts":artifacts,"target":stage.path,"length":length})).map_err(|e|format!("{e}; input staging original: {}",stage.path.display()))?;
+            root.call::<()>(value!({"operation":"seal-stage","path":stage.path,"outcome":{"kind":"input-staging","sha256":identity.sha256,"length":identity.length}}))?;
+            Ok((stage, identity.sha256, identity.length))
+        }
         pub fn write(
-            root: &Path,
+            root: &Store,
             length: u64,
             write: impl FnOnce(&mut BoundedFile) -> Result<(String, u64), String>,
         ) -> Result<(Self, String, u64), String> {
             let directory = state(root, BLOB_DIRECTORY)?;
             fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-            let path = retention::unique_path(&directory, "input-stage", ".bytes")?;
-            let publication = retention::create_adopted_with_limit(
-                root,
-                "full-original",
-                &path,
-                false,
-                value!({"kind":"input-staging","outcome":"not-established"}),
-                Some(length.max(1)),
-            )?;
-            let mut stage = Self {
+            let (path, managed) = if root.adopted() {
+                let stage:Stage = root.call(value!({"operation":"new-stage","producer":"full-original","directory":BLOB_DIRECTORY,"prefix":"input-stage","suffix":".bytes","length":length,"outcome":{"kind":"input-staging","outcome":"not-established"}}))?;
+                (stage.path, stage.managed)
+            } else {
+                let stage = tempfile::Builder::new()
+                    .prefix("input-stage")
+                    .suffix(".bytes")
+                    .tempfile_in(directory)
+                    .map_err(|e| e.to_string())?;
+                let (_, path) = stage.keep().map_err(|e| e.error.to_string())?;
+                (path, false)
+            };
+            let stage = Self {
                 path,
-                managed: publication.is_some(),
-                publication,
+                managed,
+                owner: root.clone(),
             };
             let mut output = BoundedFile {
                 file: fs::OpenOptions::new()
@@ -392,10 +375,8 @@ mod custody {
                 ));
             }
             output.file.sync_all().map_err(|e| e.to_string())?;
-            if let Some(publication) = stage.publication.take() {
-                publication.complete_sealed(
-                    value!({"kind":"input-staging","sha256":digest,"length":copied}),
-                )?;
+            if stage.managed {
+                stage.owner.call::<()>(value!({"operation":"seal-stage","path":stage.path,"outcome":{"kind":"input-staging","sha256":digest,"length":copied}}))?;
             }
             Ok((stage, digest, copied))
         }
@@ -403,9 +384,11 @@ mod custody {
 }
 
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{
-    copy_hashed, facts, file_identity, input_file::observe_file, json, no_symlink_parents, wire,
-};
+mod files;
+#[cfg(not(verus_keep_ghost))]
+use files as wire;
+#[cfg(not(verus_keep_ghost))]
+use files::{copy_hashed, file_identity, json, no_symlink_parents, observe_file, sha256};
 #[cfg(not(verus_keep_ghost))]
 mod snapshot;
 #[cfg(not(verus_keep_ghost))]
@@ -429,7 +412,7 @@ const BLOB_DIRECTORY: &str = ".chrono-harness/state/inputs/blobs";
 
 #[cfg(not(verus_keep_ghost))]
 fn state(root: &Path, path: &str) -> Result<PathBuf, String> {
-    if !chrono_harness::verified_paths::valid_host_state_path(path.as_bytes()) {
+    if !files::valid_host_state_path(path) {
         return Err("E_INPUT_PATH: output/reference must be within host state".into());
     }
     no_symlink_parents(root, path)
@@ -453,24 +436,21 @@ fn output_path(root: &Path, path: &str) -> Result<PathBuf, String> {
     Ok(target)
 }
 #[cfg(not(verus_keep_ghost))]
-fn publish(root: &Path, path: &str, v: &Value) -> Result<(), String> {
+fn publish(root: &Store, path: &str, v: &Value) -> Result<(), String> {
     let bytes = wire::canonical(v)?;
     publish_bytes(root, path, &bytes)
 }
 #[cfg(not(verus_keep_ghost))]
-fn publish_bytes(root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
-    use chrono_harness::retained_artifacts::retention;
+fn publish_bytes(root: &Store, path: &str, bytes: &[u8]) -> Result<(), String> {
     let target = output_path(root, path)?;
     let parent = target.parent().ok_or("snapshot parent")?;
     if parent == root.join(".chrono-harness/state") {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    if retention::publish_owned_original(
-        root,
-        "full-original",
+    if root.publish_text(
         path,
         bytes,
-        value!({"kind":"input-original","sha256":chrono_harness::sha256(bytes),"length":bytes.len()}),
+        value!({"kind":"input-original","sha256":sha256(bytes),"length":bytes.len()}),
     )? {
         return Ok(());
     }
@@ -486,12 +466,12 @@ fn publish_bytes(root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 #[cfg(not(verus_keep_ghost))]
-fn store(root: &Path, input: &Path) -> Result<Value, String> {
+fn store(root: &Store, input: &Path) -> Result<Value, String> {
     let _input = input
-        .strip_prefix(root)
+        .strip_prefix(&**root)
         .ok()
         .and_then(|path| path.to_str())
-        .map(|path| chrono_harness::retained_artifacts::retention::read_guard(root, path))
+        .map(|path| root.retain(path))
         .transpose()?;
     if !fs::metadata(input)
         .map_err(|e| format!("E_INPUT_READ: {}: {e}", input.display()))?
@@ -505,7 +485,7 @@ fn store(root: &Path, input: &Path) -> Result<Value, String> {
         return Err("E_INPUT_READ: not a regular file".into());
     }
     let length = file.metadata().map_err(|e| e.to_string())?.len();
-    if chrono_harness::retained_artifacts::retention::Inventory::adopted(root)?.is_some() {
+    if root.adopted() {
         let (sha256, observed_length) =
             copy_hashed((&mut file).take(length.saturating_add(1)), std::io::sink())?;
         if observed_length != length {
@@ -514,16 +494,15 @@ fn store(root: &Path, input: &Path) -> Result<Value, String> {
         let path = format!("{BLOB_DIRECTORY}/{sha256}");
         // The blob owner already reserves before writing and verifies the
         // bounded source copy. A second managed staging original has no caller.
-        if chrono_harness::retained_artifacts::retention::publish_owned_file(
-            root,
-            "full-original",
-            &path,
-            input,
-            &sha256,
-            length,
-            value!({"kind":"input-blob","sha256":sha256,"length":length}),
-        )
-        .map_err(|e| format!("E_INPUT_BLOB: {e}"))?
+        if root
+            .publish_file(
+                &path,
+                input,
+                &sha256,
+                length,
+                value!({"kind":"input-blob","sha256":sha256,"length":length}),
+            )
+            .map_err(|e| format!("E_INPUT_BLOB: {e}"))?
         {
             return Ok(value!({"blob":path,"sha256":sha256,"length":length}));
         }
@@ -535,19 +514,18 @@ fn store(root: &Path, input: &Path) -> Result<Value, String> {
 }
 // The caller hashes all bytes written to its private temporary file before publication.
 #[cfg(not(verus_keep_ghost))]
-fn publish_blob(root: &Path, staged: &Path, sha256: String, length: u64) -> Result<Value, String> {
+fn publish_blob(root: &Store, staged: &Path, sha256: String, length: u64) -> Result<Value, String> {
     let path = format!("{BLOB_DIRECTORY}/{sha256}");
     let target = state(root, &path)?;
-    if chrono_harness::retained_artifacts::retention::publish_owned_file(
-        root,
-        "full-original",
-        &path,
-        staged,
-        &sha256,
-        length,
-        value!({"kind":"input-blob","sha256":sha256,"length":length}),
-    )
-    .map_err(|e| format!("E_INPUT_BLOB: {e}"))?
+    if root
+        .publish_file(
+            &path,
+            staged,
+            &sha256,
+            length,
+            value!({"kind":"input-blob","sha256":sha256,"length":length}),
+        )
+        .map_err(|e| format!("E_INPUT_BLOB: {e}"))?
     {
         return Ok(value!({"blob":path,"sha256":sha256,"length":length}));
     }
@@ -569,13 +547,14 @@ fn publish_blob(root: &Path, staged: &Path, sha256: String, length: u64) -> Resu
 }
 #[cfg(not(verus_keep_ghost))]
 pub fn capture(root: &Path, config: &str, commit: &str, output: &str) -> Result<Produced, String> {
-    capture_selected(
-        root,
-        config,
-        commit,
-        output,
-        &chrono_harness::prepared::Selection::All,
-    )
+    capture_selected(root, config, commit, output, &Selection::All)
+}
+#[cfg(not(verus_keep_ghost))]
+#[derive(Clone, Debug)]
+pub enum Selection {
+    All,
+    Unit { unit: String },
+    Collect,
 }
 #[cfg(not(verus_keep_ghost))]
 pub fn capture_selected(
@@ -583,37 +562,30 @@ pub fn capture_selected(
     config: &str,
     commit: &str,
     output: &str,
-    selection: &chrono_harness::prepared::Selection,
+    selection: &Selection,
 ) -> Result<Produced, String> {
-    let read_scope = chrono_harness::retained_artifacts::retention::read_scope(root)?;
-    use chrono_harness::prepared::Selection;
+    let ownership = Store::open(root)?;
+    let root = &ownership;
     let unit = match selection {
         Selection::All => None,
         Selection::Unit { unit } => Some(unit.as_str()),
         Selection::Collect => return Err("E_INPUT_SCOPE: collection consumes original snapshots; it does not capture live inputs".into()),
     };
     output_path(root, output)?;
-    let reader = facts::Reader::for_config(root, config)?;
-    reader.verify_config(root, commit)?;
-    reader.verify_oid(root, commit)?;
-    if facts::utf8(reader.git(root, &["rev-parse", "HEAD"])?)?.trim() != commit {
-        return Err("E_SNAPSHOT_IDENTITY: capture requires the explicit checked-out commit".into());
-    }
-    let bytes = reader.blob(root, commit, config)?;
-    if fs::read(no_symlink_parents(root, config)?).map_err(|e| e.to_string())? != bytes {
-        return Err("E_SNAPSHOT_IDENTITY: config differs from the fixed commit".into());
-    }
-    let values = reader.registry_values(root, commit, config)?;
+    let [endpoint]: [selection::Endpoint; 1] =
+        selection::endpoints(root, config, commit, commit, true)?
+            .try_into()
+            .map_err(|_| "missing checked-out endpoint")?;
     let path = std::env::var("PATH").map_err(|error| error.to_string())?;
-    let plan = selection::capture_plan(config, &values, unit, &path, |spec, input| {
-        let result = chrono_harness::run_process(root, spec, input)?;
-        Ok((result.exit_code, result.stdout_bytes, result.stderr_bytes))
+    let plan = selection::capture_plan(config, &endpoint, unit, &path, |spec, input| {
+        command::run(root, spec, input)
     })?;
-    let effective = values
+    let effective = endpoint
+        .values
         .get(&plan.effective_config)
         .ok_or("missing capture configuration")?;
     let credentials = if effective["schema_version"] == 4 {
-        chrono_harness::prepared::credential_environment(effective)?
+        selection::input_profile(root, effective, false)?.credential_environment
     } else {
         Default::default()
     };
@@ -666,8 +638,8 @@ pub fn capture_selected(
         snapshot["selection"] = selection;
     }
     publish(root, output, &snapshot)?;
-    custody::dependencies(root, output, &custody::blobs(&snapshot))?;
-    Produced::new(root, output, snapshot, read_scope)
+    root.dependencies(output, &custody::blobs(&snapshot))?;
+    Produced::new(root, output, snapshot)
 }
 
 /// Transport reads references only after snapshot_shape has admitted every record.
@@ -690,8 +662,8 @@ fn captured_blob<'a>(
 }
 
 #[cfg(not(verus_keep_ghost))]
-fn transport(from: &Path, snapshot: &str, to: &Path) -> Result<Value, String> {
-    let _snapshot = chrono_harness::retained_artifacts::retention::read_guard(from, snapshot)?;
+fn transport(from: &Store, snapshot: &str, to: &Store) -> Result<Value, String> {
+    from.retain(snapshot)?;
     let bytes = fs::read(state(from, snapshot)?).map_err(|e| e.to_string())?;
     let mut v = json(&bytes)?;
     snapshot_shape(&v)?;
@@ -704,7 +676,7 @@ fn transport(from: &Path, snapshot: &str, to: &Path) -> Result<Value, String> {
         else {
             continue;
         };
-        let _blob = chrono_harness::retained_artifacts::retention::read_guard(from, blob)?;
+        from.retain(blob)?;
         let path = state(from, blob)?;
         let observed = store(to, &path)?;
         if observed["sha256"] != digest || observed["length"] != length {
@@ -723,21 +695,22 @@ pub fn pair(
     candidate: &str,
     output: &str,
 ) -> Result<Produced, String> {
-    let read_scope = chrono_harness::retained_artifacts::retention::read_scope(root)?;
+    let ownership = Store::open(root)?;
+    let root = &ownership;
     // Source capabilities survive both transports and the destination handoff.
-    let _base = chrono_harness::retained_artifacts::retention::read_scope(base_root)?;
-    let _candidate = chrono_harness::retained_artifacts::retention::read_scope(candidate_root)?;
+    let base_root = Store::open(base_root)?;
+    let candidate_root = Store::open(candidate_root)?;
     output_path(root, output)?;
-    let a = transport(base_root, base, root)?;
-    let b = transport(candidate_root, candidate, root)?;
+    let a = transport(&base_root, base, root)?;
+    let b = transport(&candidate_root, candidate, root)?;
     let v = value!({"base":a,"candidate":b});
     publish(root, output, &v)?;
     let mut blobs = custody::blobs(&v["base"]);
     blobs.extend(custody::blobs(&v["candidate"]));
     blobs.sort();
     blobs.dedup();
-    custody::dependencies(root, output, &blobs)?;
-    Produced::new(root, output, v, read_scope)
+    root.dependencies(output, &blobs)?;
+    Produced::new(root, output, v)
 }
 #[cfg(not(verus_keep_ghost))]
 pub fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
@@ -758,22 +731,16 @@ pub fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
         InputKind::Compose => required("--receipt")?,
         _ => output,
     };
-    let owner = chrono_harness::retained_artifacts::retention::Inventory::adopted(&root)?;
-    if owner.as_ref().is_some_and(|owner| {
-        owner.accepts("full-original", output) || owner.accepts("full-original", primary)
-    }) && consumer.is_none()
-    {
+    let ownership = Store::open(&root)?;
+    if consumer.is_none() && (ownership.accepts(output)? || ownership.accepts(primary)?) {
         return Err("E_INPUT_RETENTION: adopted input export requires --report-consumer ID".into());
     }
     if let Some(consumer) = consumer {
-        if consumer.trim().is_empty()
-            || !owner
-                .as_ref()
-                .is_some_and(|owner| owner.accepts("full-original", primary))
-        {
+        if consumer.trim().is_empty() || !ownership.accepts(primary)? {
             return Err("E_INPUT_RETENTION: caller handoff requires a nonempty consumer and adopted primary output".into());
         }
     }
+    drop(ownership);
     let result = match command.kind {
         InputKind::Capture => capture_selected(
             &root,
@@ -782,9 +749,7 @@ pub fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
             required("--output")?,
             &command
                 .option("--unit")
-                .map_or(chrono_harness::prepared::Selection::All, |unit| {
-                    chrono_harness::prepared::Selection::Unit { unit: unit.into() }
-                }),
+                .map_or(Selection::All, |unit| Selection::Unit { unit: unit.into() }),
         )?,
         InputKind::Compose => compose(
             &root,

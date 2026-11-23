@@ -69,6 +69,14 @@ fn reports_original_findings_and_transports_failures() {
             Ok((2, vec![], b"E_GIT_FACTS: observation\n".to_vec())),
             "E_GIT_FACTS: observation",
         ),
+        (
+            Ok((
+                0,
+                br#"{"tests":[],"retired_tests":[],"findings":[{"level":"error"}]}"#.to_vec(),
+                vec![],
+            )),
+            "invalid endpoint-tests response:",
+        ),
         (Err("process timeout".into()), "process timeout"),
         (
             Ok((0, b"{}".to_vec(), vec![])),
@@ -130,11 +138,16 @@ fn capture_uses_fixed_documents_and_checks_the_returned_selection() {
         json!({"schema_version":3, "protocol":{"timeout_seconds":8,"stdout_limit_bytes":4096}});
     let documents = BTreeMap::from([(config.to_owned(), policy)]);
     let expected = json!({"config":config,"documents":documents,"unit":"example"});
+    let endpoint = selection::Endpoint {
+        values: documents.clone(),
+        effective_path: config.into(),
+        selection: None,
+    };
     let valid = json!({"schema":"chrono-input-snapshot/v2","effective_config":config,"selection":null,"required":["sdk"]});
     let run = |output: Value| {
         selection::capture_plan(
             config,
-            &documents,
+            &endpoint,
             Some("example"),
             "/tools",
             |cmd, input| {
@@ -163,7 +176,7 @@ fn capture_uses_fixed_documents_and_checks_the_returned_selection() {
                 .contains("fixed configuration selection")
         );
     }
-    let failure = selection::capture_plan(config, &documents, None, "/tools", |_, input| {
+    let failure = selection::capture_plan(config, &endpoint, None, "/tools", |_, input| {
         assert_eq!(
             serde_json::from_slice::<Value>(input).unwrap()["unit"],
             Value::Null
