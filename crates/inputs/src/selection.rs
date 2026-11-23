@@ -88,7 +88,7 @@ pub(crate) fn selected_tests(
     )
 }
 
-fn query<T: DeserializeOwned>(
+pub(crate) fn query<T: DeserializeOwned>(
     program: &str,
     operation: &str,
     endpoints: &Value,

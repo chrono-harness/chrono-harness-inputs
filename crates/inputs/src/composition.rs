@@ -1054,7 +1054,8 @@ pub fn compose(
     let old = Registrations::load(&base_values, config)?;
     let candidate_values = reader.registry_values(root, candidate, config)?;
     let new = Registrations::load(&candidate_values, config)?;
-    let selected = if chrono_harness::units::full_execution_units(new.config())?.is_some() {
+    let collection_inputs = if chrono_harness::units::full_execution_units(new.config())?.is_some()
+    {
         let path = std::env::var("PATH").map_err(|e| e.to_string())?;
         let mut environment = std::collections::BTreeMap::new();
         let credentials = chrono_harness::prepared::credential_environment(new.config())?;
@@ -1074,19 +1075,33 @@ pub fn compose(
             }
         }
         environment.insert("PATH".into(), path);
-        Some(crate::selection::selected_tests(
+        let mut registries =
+            value!({"config":config,"base":base_values,"candidate":candidate_values});
+        let mut invoke = |command: &chrono_harness::CommandSpec, stdin: &[u8]| {
+            let process = chrono_harness::run_process(root, command, stdin)?;
+            Ok((
+                process.exit_code,
+                process.stdout_bytes,
+                process.stderr_bytes,
+            ))
+        };
+        let selected = crate::selection::selected_tests(
             &value!({"config":config,"base":base,"candidate":candidate}),
-            value!({"config":config,"base":base_values,"candidate":candidate_values}),
+            registries.clone(),
             &new.config()["protocol"],
             &environment,
-            |command, stdin| {
-                let process = chrono_harness::run_process(root, command, stdin)?;
-                Ok((
-                    process.exit_code,
-                    process.stdout_bytes,
-                    process.stderr_bytes,
-                ))
-            },
+            &mut invoke,
+        )?;
+        registries["selected"] = value!(selected);
+        Some(crate::selection::query::<
+            std::collections::BTreeMap<String, BTreeSet<String>>,
+        >(
+            "chrono-judge-registration",
+            "collection-inputs-v1",
+            &registries,
+            &new.config()["protocol"],
+            &std::collections::BTreeMap::from([("PATH".into(), environment["PATH"].clone())]),
+            invoke,
         )?)
     } else {
         None
@@ -1159,10 +1174,11 @@ pub fn compose(
                 "E_COMPOSE_COVERAGE: {name} missing endpoint original"
             ));
         }
-        let required = if let Some(selected) = &selected {
-            chrono_judge_registration::inputs::collection_required_files(
-                name, &old, &new, selected,
-            )?
+        let required = if let Some(inputs) = &collection_inputs {
+            inputs
+                .get(name)
+                .ok_or_else(|| format!("missing collection input endpoint {name}"))?
+                .clone()
         } else {
             chrono_judge_registration::inputs::required_files(r, None)?
         };
