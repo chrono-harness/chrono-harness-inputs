@@ -123,3 +123,53 @@ fn reports_original_findings_and_transports_failures() {
         );
     }
 }
+
+#[test]
+fn capture_uses_fixed_documents_and_checks_the_returned_selection() {
+    let config = "config.json";
+    let policy =
+        json!({"schema_version":3, "protocol":{"timeout_seconds":8,"stdout_limit_bytes":4096}});
+    let documents = BTreeMap::from([(config.to_owned(), policy)]);
+    let expected = json!({"config":config,"documents":documents,"unit":"example"});
+    let valid = json!({"schema":"chrono-input-snapshot/v2","effective_config":config,"selection":null,"required":["sdk"]});
+    let run = |output: Value| {
+        selection::capture_plan(
+            config,
+            &documents,
+            Some("example"),
+            "/tools",
+            |cmd, input| {
+                assert_eq!(cmd.program, "chrono-judge-registration");
+                assert_eq!(cmd.args, ["capture-plan-v1"]);
+                assert_eq!(cmd.env, BTreeMap::from([("PATH".into(), "/tools".into())]));
+                assert_eq!((cmd.timeout_seconds, cmd.output_limit_bytes), (8, 4096));
+                assert_eq!(serde_json::from_slice::<Value>(input).unwrap(), expected);
+                Ok((0, serde_json::to_vec(&output).unwrap(), vec![]))
+            },
+        )
+    };
+    let plan = run(valid.clone()).unwrap();
+    assert_eq!(plan.schema, "chrono-input-snapshot/v2");
+    assert_eq!(plan.required.into_iter().collect::<Vec<_>>(), ["sdk"]);
+    for (field, other) in [
+        ("effective_config", json!("other")),
+        ("selection", json!({})),
+    ] {
+        let mut wrong = valid.clone();
+        wrong[field] = other;
+        assert!(
+            run(wrong)
+                .err()
+                .unwrap()
+                .contains("fixed configuration selection")
+        );
+    }
+    let failure = selection::capture_plan(config, &documents, None, "/tools", |_, input| {
+        assert_eq!(
+            serde_json::from_slice::<Value>(input).unwrap()["unit"],
+            Value::Null
+        );
+        Ok((2, vec![], b"E_UNIT_ASSIGNMENT: unknown\n".to_vec()))
+    });
+    assert_eq!(failure.err().unwrap(), "E_UNIT_ASSIGNMENT: unknown");
+}

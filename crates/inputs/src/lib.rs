@@ -582,10 +582,10 @@ pub fn capture_selected(
     selection: &chrono_harness::prepared::Selection,
 ) -> Result<Produced, String> {
     let read_scope = chrono_harness::retained_artifacts::retention::read_scope(root)?;
-    use chrono_harness::{prepared::Selection, units::Scope};
-    let scope = match selection {
+    use chrono_harness::prepared::Selection;
+    let unit = match selection {
         Selection::All => None,
-        Selection::Unit { unit } => Some(Scope::Unit { unit: unit.clone() }),
+        Selection::Unit { unit } => Some(unit.as_str()),
         Selection::Collect => return Err("E_INPUT_SCOPE: collection consumes original snapshots; it does not capture live inputs".into()),
     };
     output_path(root, output)?;
@@ -600,15 +600,24 @@ pub fn capture_selected(
         return Err("E_SNAPSHOT_IDENTITY: config differs from the fixed commit".into());
     }
     let values = reader.registry_values(root, commit, config)?;
-    let r = Registrations::load(&values, config)?;
-    let required = chrono_judge_registration::inputs::required_files(&r, scope.as_ref())?;
-    let credentials = if r.config()["schema_version"] == 4 {
-        chrono_harness::prepared::credential_environment(r.config())?
+    let path = std::env::var("PATH").map_err(|error| error.to_string())?;
+    let plan = selection::capture_plan(config, &values, unit, &path, |spec, input| {
+        let result = chrono_harness::run_process(root, spec, input)?;
+        Ok((result.exit_code, result.stdout_bytes, result.stderr_bytes))
+    })?;
+    let effective = values
+        .get(&plan.effective_config)
+        .ok_or("missing capture configuration")?;
+    let credentials = if effective["schema_version"] == 4 {
+        chrono_harness::prepared::credential_environment(effective)?
     } else {
         Default::default()
     };
     let mut environment = serde_json::Map::new();
-    for key in r.config()["environment"]["inherit"].as_array().unwrap() {
+    for key in effective["environment"]["inherit"]
+        .as_array()
+        .ok_or("invalid inherited environment")?
+    {
         let key = key.as_str().ok_or("invalid inherited variable")?;
         let v = if credentials.contains(key) {
             Value::Null
@@ -622,12 +631,16 @@ pub fn capture_selected(
         environment.insert(key.into(), v);
     }
     let mut files = serde_json::Map::new();
-    for input in r.config()["environment"]["inputs"].as_array().unwrap() {
-        if !required.contains(input["id"].as_str().unwrap()) {
+    for input in effective["environment"]["inputs"]
+        .as_array()
+        .ok_or("invalid registered inputs")?
+    {
+        let id = input["id"].as_str().ok_or("invalid input id")?;
+        if !plan.required.contains(id) {
             continue;
         }
-        let path = root.join(input["location"].as_str().unwrap());
-        let retained = if matches!(r.config()["schema_version"].as_u64(), Some(2 | 3 | 4)) {
+        let path = root.join(input["location"].as_str().ok_or("invalid input location")?);
+        let retained = if matches!(effective["schema_version"].as_u64(), Some(2 | 3 | 4)) {
             match observe_file(&path)? {
                 None => value!({"absent":true}),
                 Some(identity) => {
@@ -641,12 +654,12 @@ pub fn capture_selected(
         } else {
             store(root, &path)?
         };
-        files.insert(input["id"].as_str().unwrap().into(), retained);
+        files.insert(id.into(), retained);
     }
-    let mut snapshot = value!({"schema":snapshot_schema_for(&r),"commit":commit,"config_path":config,"config_digest":wire::digest(r.config())?,"environment":environment,"files":files});
-    if let Some(selection) = r.selection() {
-        snapshot["effective_config_path"] = value!(r.effective_config_path());
-        snapshot["selection"] = selection.clone();
+    let mut snapshot = value!({"schema":plan.schema,"commit":commit,"config_path":config,"config_digest":wire::digest(effective)?,"environment":environment,"files":files});
+    if let Some(selection) = plan.selection {
+        snapshot["effective_config_path"] = value!(plan.effective_config);
+        snapshot["selection"] = selection;
     }
     publish(root, output, &snapshot)?;
     custody::dependencies(root, output, &custody::blobs(&snapshot))?;

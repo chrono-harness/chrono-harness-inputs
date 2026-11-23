@@ -10,6 +10,43 @@ struct FilemapSelection {
     findings: Vec<chrono_harness::wire::Finding>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CapturePlan {
+    pub schema: String,
+    pub effective_config: String,
+    pub selection: Option<Value>,
+    pub required: BTreeSet<String>,
+}
+
+/// Ask registration to interpret the same fixed documents held by capture.
+pub(crate) fn capture_plan(
+    config: &str,
+    documents: &BTreeMap<String, Value>,
+    unit: Option<&str>,
+    search_path: &str,
+    invoke: impl FnOnce(&CommandSpec, &[u8]) -> Result<(i32, Vec<u8>, Vec<u8>), String>,
+) -> Result<CapturePlan, String> {
+    let identity = chrono_harness::facts::registry_identity(documents, config)?;
+    let selected = documents
+        .get(&identity.effective_path)
+        .ok_or("missing effective config")?;
+    let reply: CapturePlan = query(
+        "chrono-judge-registration",
+        "capture-plan-v1",
+        &serde_json::json!({"config": config, "documents": documents, "unit": unit}),
+        &selected["protocol"],
+        &BTreeMap::from([("PATH".into(), search_path.into())]),
+        invoke,
+    )?;
+    if reply.effective_config != identity.effective_path || reply.selection != identity.selection {
+        return Err(
+            "E_INPUT_SNAPSHOT: capture plan differs from the fixed configuration selection".into(),
+        );
+    }
+    Ok(reply)
+}
+
 pub(crate) fn selected_tests(
     commits: &Value,
     mut registries: Value,
