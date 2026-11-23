@@ -93,3 +93,60 @@ fn pairs_stored_inputs_with_an_empty_tool_search_path() {
     assert!(String::from_utf8_lossy(&result.stderr).contains("E_INPUT_BLOB: absent must be true"));
     assert!(!destination.join(rejected).exists());
 }
+
+#[test]
+fn snapshot_versions_reject_inconsistent_selectors_and_malformed_file_addresses() {
+    let mut snapshot = json!({
+        "schema":"chrono-input-snapshot/v3", "commit":"c".repeat(40),
+        "config_path":"selector.json", "config_digest":"d".repeat(64),
+        "effective_config_path":"host.json", "selection":{
+            "schema":"chrono-registry-selection/v1", "path":"selector.json",
+            "config_path":"host.json", "registry_path":"release.json", "platform":"test-platform"
+        },
+        "environment":{"ABSENT":null,"EMPTY":""}, "files":{"optional":{"absent":true}}
+    });
+    let admit = chrono_inputs::test_support::snapshot_shape;
+    assert!(admit(&snapshot).is_ok());
+    for (pointer, invalid) in [
+        ("/schema", json!("chrono-input-snapshot/v2")),
+        ("/selection/path", json!("wrong.json")),
+        ("/selection/config_path", json!("other.json")),
+        ("/selection/platform", json!("  ")),
+        ("/selection/registry_path", json!("../bad")),
+        ("/environment/ABSENT", json!(0)),
+        ("/files/optional", json!({"absent":true,"bytes":[]})),
+        (
+            "/files/optional",
+            json!({"blob":"../bad","sha256":"f".repeat(64),"length":0}),
+        ),
+        (
+            "/files/optional",
+            json!({"blob":".chrono-harness/state/file","sha256":"bad","length":0}),
+        ),
+        (
+            "/files/optional",
+            json!({"blob":".chrono-harness/state/file","sha256":"f".repeat(64),"length":-1}),
+        ),
+    ] {
+        let mut modified = snapshot.clone();
+        *modified.pointer_mut(pointer).unwrap() = invalid;
+        assert!(admit(&modified).is_err(), "{pointer}");
+    }
+    let object = snapshot.as_object_mut().unwrap();
+    object.remove("selection");
+    object.remove("effective_config_path");
+    snapshot["schema"] = json!("chrono-input-snapshot/v2");
+    assert!(admit(&snapshot).is_ok());
+    snapshot["schema"] = json!("chrono-input-snapshot/v1");
+    assert_eq!(
+        admit(&snapshot).unwrap_err(),
+        "E_INPUT_SNAPSHOT: absence requires snapshot v2"
+    );
+    snapshot["files"] = json!({"inline":{"bytes":[0,255]}});
+    assert!(admit(&snapshot).is_ok());
+    snapshot["files"]["inline"]["bytes"] = json!([256]);
+    assert_eq!(
+        admit(&snapshot).unwrap_err(),
+        "E_INPUT_BLOB: invalid retained byte array"
+    );
+}

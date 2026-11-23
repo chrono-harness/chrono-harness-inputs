@@ -922,6 +922,85 @@ fn manifest(root: &Path, path: &str) -> Result<(Vec<u8>, Manifest), String> {
     admit_manifest(&manifest.schema, manifest.sources.len())?;
     Ok((raw, manifest))
 }
+/// Compose only consumes the selected endpoint configuration and its captured inputs.
+#[cfg(not(verus_keep_ghost))]
+pub(crate) struct SnapshotEndpoint<'a> {
+    config: &'a Value,
+    effective_path: &'a str,
+    selection: Option<&'a Value>,
+    schema: &'static str,
+    inputs: &'a Vec<Value>,
+    required: BTreeSet<String>,
+}
+
+#[cfg(not(verus_keep_ghost))]
+impl<'a> SnapshotEndpoint<'a> {
+    pub(crate) fn from_snapshot(snapshot: &'a facts::RegistrySnapshot) -> Result<Self, String> {
+        let config = snapshot
+            .values
+            .get(&snapshot.effective_path)
+            .ok_or("missing effective config")?;
+        Self::from_config(
+            config,
+            &snapshot.effective_path,
+            snapshot.selection.as_ref(),
+        )
+    }
+
+    fn from_config(
+        config: &'a Value,
+        effective_path: &'a str,
+        selection: Option<&'a Value>,
+    ) -> Result<Self, String> {
+        let version = config["schema_version"]
+            .as_u64()
+            .filter(|v| (1..=4).contains(v))
+            .ok_or("unsupported input configuration version")?;
+        let inputs = config["environment"]["inputs"]
+            .as_array()
+            .ok_or("inputs missing")?;
+        let mut required = BTreeSet::new();
+        for input in inputs {
+            let id = input["id"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .ok_or("input id missing")?;
+            if !required.insert(id.to_owned()) {
+                return Err(format!("duplicate input ID {id}"));
+            }
+            let absent = match (version, input.get("presence")) {
+                (1, None) => false,
+                (2..=4, Some(presence)) if presence == "present" => false,
+                (2..=4, Some(presence)) if presence == "absent" => true,
+                _ => return Err(format!("invalid presence for input {id}")),
+            };
+            let digest = input.get("sha256");
+            if (absent && digest.is_some())
+                || (!absent
+                    && !digest.is_some_and(|value| {
+                        value.is_null() || value.as_str().is_some_and(wire::is_digest)
+                    }))
+            {
+                return Err(format!("invalid declared digest for input {id}"));
+            }
+        }
+        Ok(Self {
+            config,
+            effective_path,
+            selection,
+            schema: if selection.is_some() {
+                SNAPSHOT_SCHEMA_V3
+            } else if version == 1 {
+                SNAPSHOT_SCHEMA
+            } else {
+                SNAPSHOT_SCHEMA_V2
+            },
+            inputs,
+            required,
+        })
+    }
+}
+
 /// Import addressed capture data, never execute its historical producer/judges.
 /// A source is an original snapshot at either endpoint or an exact endpoint pair.
 #[cfg(not(verus_keep_ghost))]
@@ -931,8 +1010,8 @@ fn import_source(
     config: &str,
     base: &str,
     candidate: &str,
-    old: &Registrations,
-    new: &Registrations,
+    old: &SnapshotEndpoint<'_>,
+    new: &SnapshotEndpoint<'_>,
 ) -> Result<(Value, Value), String> {
     let bytes = source_bytes(root, source)?;
     let v = json(&bytes)?;
@@ -969,7 +1048,7 @@ fn import_source(
             snapshot["schema"].as_str(),
             snapshot["commit"].as_str(),
             snapshot["config_path"].as_str(),
-            snapshot_schema_for(r),
+            r.schema,
             commit,
             config,
         )
@@ -981,13 +1060,13 @@ fn import_source(
                 effective_present: snapshot.get("effective_config_path").is_some(),
                 effective: snapshot["effective_config_path"].as_str(),
             },
-            &wire::digest(r.config())?,
-            r.selection().is_some(),
-            Some(&snapshot["selection"]) == r.selection(),
-            r.effective_config_path(),
+            &wire::digest(r.config)?,
+            r.selection.is_some(),
+            Some(&snapshot["selection"]) == r.selection,
+            r.effective_path,
         )
         .map_err(|error| format!("E_COMPOSE_HEADER: {name} {error}"))?;
-        chrono_judge_registration::inputs::environment(r.config(), &snapshot["environment"])?;
+        crate::snapshot::bind_environment(r.config, &snapshot["environment"])?;
         pair[name] = snapshot.clone();
         let files: Vec<_> = snapshot["files"]
             .as_object()
@@ -999,10 +1078,9 @@ fn import_source(
             pair,
             files.as_slice(),
             &|state, id| {
-                let inputs = r.config()["environment"]["inputs"].as_array().unwrap();
                 (
                     state,
-                    find_composition_input(inputs, id).map(|index| &inputs[index]),
+                    find_composition_input(r.inputs, id).map(|index| &r.inputs[index]),
                 )
             },
             &|state, file| (state, import_blob(root, file, source)),
@@ -1044,16 +1122,15 @@ pub fn compose(
     admit_output_paths(output, receipt)?;
     let (raw, manifest) = manifest(root, manifest_path)?;
     let reader = facts::Reader::for_config(root, config)?;
-    let base_values = reader.registry_values(root, base, config)?;
-    let old = Registrations::load(&base_values, config)?;
-    let candidate_values = reader.registry_values(root, candidate, config)?;
-    let new = Registrations::load(&candidate_values, config)?;
-    let collection_inputs = if chrono_harness::units::full_execution_units(new.config())?.is_some()
-    {
+    let base_snapshot = reader.registry_snapshot(root, base, config)?;
+    let old = SnapshotEndpoint::from_snapshot(&base_snapshot)?;
+    let candidate_snapshot = reader.registry_snapshot(root, candidate, config)?;
+    let new = SnapshotEndpoint::from_snapshot(&candidate_snapshot)?;
+    let collection_inputs = if chrono_harness::units::full_execution_units(new.config)?.is_some() {
         let path = std::env::var("PATH").map_err(|e| e.to_string())?;
         let mut environment = std::collections::BTreeMap::new();
-        let credentials = chrono_harness::prepared::credential_environment(new.config())?;
-        for name in new.config()["environment"]["inherit"]
+        let credentials = chrono_harness::prepared::credential_environment(new.config)?;
+        for name in new.config["environment"]["inherit"]
             .as_array()
             .ok_or("environment.inherit")?
         {
@@ -1069,8 +1146,7 @@ pub fn compose(
             }
         }
         environment.insert("PATH".into(), path);
-        let mut registries =
-            value!({"config":config,"base":base_values,"candidate":candidate_values});
+        let mut registries = value!({"config":config,"base":base_snapshot.values,"candidate":candidate_snapshot.values});
         let mut invoke = |command: &chrono_harness::CommandSpec, stdin: &[u8]| {
             let process = chrono_harness::run_process(root, command, stdin)?;
             Ok((
@@ -1082,7 +1158,7 @@ pub fn compose(
         let selected = crate::selection::selected_tests(
             &value!({"config":config,"base":base,"candidate":candidate}),
             registries.clone(),
-            &new.config()["protocol"],
+            &new.config["protocol"],
             &environment,
             &mut invoke,
         )?;
@@ -1093,7 +1169,7 @@ pub fn compose(
             "chrono-judge-registration",
             "collection-inputs-v1",
             &registries,
-            &new.config()["protocol"],
+            &new.config["protocol"],
             &std::collections::BTreeMap::from([("PATH".into(), environment["PATH"].clone())]),
             invoke,
         )?)
@@ -1172,12 +1248,11 @@ pub fn compose(
             inputs
                 .get(name)
                 .ok_or_else(|| format!("missing collection input endpoint {name}"))?
-                .clone()
         } else {
-            chrono_judge_registration::inputs::required_files(r, None)?
+            &r.required
         };
         for id in required {
-            if pair[name]["files"].get(&id).is_none() {
+            if pair[name]["files"].get(id).is_none() {
                 return Err(format!("E_COMPOSE_COVERAGE: {name} missing input {id}"));
             }
         }
