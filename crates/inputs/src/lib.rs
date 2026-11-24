@@ -615,9 +615,19 @@ pub fn capture_selected(
         if !plan.required.contains(id) {
             continue;
         }
-        let path = root.join(input["location"].as_str().ok_or("invalid input location")?);
+        let location = input["location"].as_str().ok_or("invalid input location")?;
+        let installed = plan.installed_paths.get(id);
+        let path = installed.cloned().unwrap_or_else(|| root.join(location));
         let retained = if matches!(effective["schema_version"].as_u64(), Some(2 | 3 | 4)) {
-            match observe_file(&path)? {
+            let identity = observe_file(&path)?;
+            if installed.is_some()
+                && identity.as_ref().map(|(digest, _)| digest.as_str()) != input["sha256"].as_str()
+            {
+                return Err(format!(
+                    "E_INPUT_READ: installed tool digest or presence differs: {id}"
+                ));
+            }
+            match identity {
                 None => value!({"absent":true}),
                 Some(identity) => {
                     let observed = store(root, &path)?;
