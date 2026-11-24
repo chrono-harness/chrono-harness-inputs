@@ -1541,6 +1541,29 @@ fn composition_sources_empty_inventory_keeps_exact_initial_state()
 verus! {
 fn expect_shape(ok: bool) requires ok, { if !ok { panic!(); } }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn capture_mapping_requires_a_registered_single_member() {
+    use policy::capture_mapping::{permitted, same_endpoint};
+    let ci = [99u8, 105u8];
+    let one_dot = [46u8];
+    let two_dots = [46u8, 46u8];
+    let nested = [97u8, 47u8, 98u8];
+    let member = Some(ci.as_slice());
+    expect_shape(same_endpoint(true,true));
+    expect_shape(!same_endpoint(false,true));
+    expect_shape(!same_endpoint(true,false));
+    expect_shape(permitted(true,true,true,member,true,true));
+    expect_shape(!permitted(false,true,true,member,true,true));
+    expect_shape(!permitted(true,false,true,member,true,true));
+    expect_shape(!permitted(true,true,false,member,true,true));
+    expect_shape(!permitted(true,true,true,member,false,true));
+    expect_shape(!permitted(true,true,true,member,true,false));
+    expect_shape(!permitted(true,true,true,None,true,true));
+    expect_shape(!permitted(true,true,true,Some(one_dot.as_slice()),true,true));
+    expect_shape(!permitted(true,true,true,Some(two_dots.as_slice()),true,true));
+    expect_shape(!permitted(true,true,true,Some(nested.as_slice()),true,true));
+}
+
 fn expect_shape_error<T>(out: Result<T, &str>, expected: &str)
     requires match out { Err(message) => message@ == expected@, _ => false },
 {
