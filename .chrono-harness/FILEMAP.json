@@ -552,6 +552,31 @@
       ]
     },
     {
+      "path": "crates/inputs/src/retained_shape.rs",
+      "owner": "inputs",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/inputs/src/lib.rs",
+            "operation": "verify.inputs-blobs"
+          },
+          {
+            "path": "crates/inputs-tests/tests/snapshots.rs",
+            "operation": "verify.inputs-blobs-tests"
+          }
+        ]
+      }
+    },
+    {
       "path": "crates/inputs/src/selection.rs",
       "owner": "inputs",
       "surface": "product",

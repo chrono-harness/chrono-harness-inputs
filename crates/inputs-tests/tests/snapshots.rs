@@ -1537,3 +1537,46 @@ fn composition_sources_empty_inventory_keeps_exact_initial_state()
 }
 
 }
+
+verus! {
+fn expect_shape(ok: bool) requires ok, { if !ok { panic!(); } }
+
+fn expect_shape_error<T>(out: Result<T, &str>, expected: &str)
+    requires match out { Err(message) => message@ == expected@, _ => false },
+{
+    match out {
+        Err(message) => expect_shape(<&str>::exec_eq(message, expected)),
+        _ => expect_shape(false),
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn retained_snapshot_versions_and_file_forms_preserve_error_order() {
+    use policy::retained_shape::*;
+    proof {
+        reveal_strlit("chrono-input-snapshot/v1"); reveal_strlit("chrono-input-snapshot/v2");
+        reveal_strlit("chrono-input-snapshot/v3");
+        assert("chrono-input-snapshot/v1"@[23] != "chrono-input-snapshot/v2"@[23]);
+        assert("chrono-input-snapshot/v1"@[23] != "chrono-input-snapshot/v3"@[23]);
+        assert("chrono-input-snapshot/v2"@[23] != "chrono-input-snapshot/v3"@[23]);
+    }
+    expect_shape(matches!(version(Some("chrono-input-snapshot/v1"),false,false), Ok(Version::V1)));
+    expect_shape(matches!(version(Some("chrono-input-snapshot/v2"),false,false), Ok(Version::V2)));
+    expect_shape(matches!(version(Some("chrono-input-snapshot/v3"),true,true), Ok(Version::V3)));
+    expect_shape_error(version(Some("chrono-input-snapshot/v2"),false,true), "E_INPUT_SNAPSHOT: selection binding requires snapshot v3");
+    expect_shape_error(version(None,true,true), "E_INPUT_SNAPSHOT: unsupported snapshot schema");
+    expect_shape(matches!(representation(true,true,true), Ok(Representation::Absent)));
+    expect_shape(matches!(representation(false,true,false), Ok(Representation::Bytes)));
+    expect_shape(matches!(representation(false,false,true), Ok(Representation::Blob)));
+    expect_shape_error(representation(false,true,true), "E_INPUT_BLOB: expected exactly one bytes or blob representation");
+    expect_shape_error(representation(false,false,false), "E_INPUT_BLOB: expected exactly one bytes or blob representation");
+    expect_shape_error(admit_absent(Version::V1,Some(false)), "E_INPUT_BLOB: absent must be true");
+    expect_shape_error(admit_absent(Version::V1,Some(true)), "E_INPUT_SNAPSHOT: absence requires snapshot v2");
+    expect_shape(admit_absent(Version::V2,Some(true)).is_ok());
+    expect_shape(is_byte(Some(0)) && is_byte(Some(255)) && !is_byte(Some(256)) && !is_byte(None));
+    expect_shape_error(admit_reference(false,false,false), "E_INPUT_BLOB: reference must be within host state");
+    expect_shape_error(admit_reference(true,false,false), "E_INPUT_BLOB: invalid digest");
+    expect_shape_error(admit_reference(true,true,false), "E_INPUT_BLOB: invalid length");
+    expect_shape(admit_reference(true,true,true).is_ok());
+}
+}
