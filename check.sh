@@ -22,7 +22,7 @@ product=crates/inputs/Cargo.toml
 cargo build --locked --message-format=json-render-diagnostics --manifest-path "$product" > "$scratch/build.jsonl"
 cargo fmt --check --manifest-path crates/inputs-tests/Cargo.toml
 CHRONO_INPUTS_BIN="$(cd "$CARGO_TARGET_DIR" && pwd -P)/debug/chrono-inputs" cargo test --color never --locked --manifest-path crates/inputs-tests/Cargo.toml -- --format pretty | tee "$scratch/tests.log"
-for consumer in retained_snapshot_versions_and_file_forms_preserve_error_order snapshot_versions_reject_inconsistent_selectors_and_malformed_file_addresses capture_uses_fixed_documents_and_checks_the_returned_selection pairs_stored_inputs_with_an_empty_tool_search_path; do
+for consumer in capture_mapping_requires_a_registered_single_member retained_snapshot_versions_and_file_forms_preserve_error_order snapshot_versions_reject_inconsistent_selectors_and_malformed_file_addresses capture_uses_fixed_documents_and_checks_the_returned_selection pairs_stored_inputs_with_an_empty_tool_search_path; do
   grep -Fxq "test $consumer ... ok" "$scratch/tests.log" || {
     echo "E_VERUS_COVERAGE: required snapshot consumer did not pass: $consumer" >&2
     exit 1
@@ -44,4 +44,4 @@ filename=${metadata##*/}
 stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
 chrono-host-bootstrap check-compiler-sources native "$stem" \
-  src/lib.rs src/composition.rs src/snapshot.rs src/retained_shape.rs || coverage_failure "native library differs from required sources"
+  src/lib.rs src/capture_mapping.rs src/selection.rs src/composition.rs src/snapshot.rs src/retained_shape.rs || coverage_failure "native library differs from required sources"

@@ -51,39 +51,45 @@ pub fn capture_plan(
         &BTreeMap::from([("PATH".into(), search_path.into())]),
         invoke,
     )?;
-    if reply.effective_config != endpoint.effective_path || reply.selection != endpoint.selection {
+    if !crate::capture_mapping::same_endpoint(
+        reply.effective_config == endpoint.effective_path,
+        reply.selection == endpoint.selection,
+    ) {
         return Err(
             "E_INPUT_SNAPSHOT: capture plan differs from the fixed configuration selection".into(),
         );
     }
-    for (id, target) in &reply.installed_paths {
-        let input = selected["environment"]["inputs"]
-            .as_array()
-            .and_then(|rows| rows.iter().find(|row| row["id"].as_str() == Some(id)));
-        let permitted = input.is_some_and(|row| {
-            let Some(location) = row["location"].as_str() else {
-                return false;
-            };
-            let Some(name) = location.strip_prefix(".chrono-harness/bin/") else {
-                return false;
-            };
-            row["presence"] == "present"
-                && !name.is_empty()
-                && name != "."
-                && name != ".."
-                && !name.contains('/')
-                && row["sha256"].as_str().is_some_and(crate::files::is_digest)
-                && selected["tools"].as_array().is_some_and(|tools| {
+    let rejected =
+        crate::capture_mapping::first_invalid(reply.installed_paths.iter(), |id, target| {
+            let input = selected["environment"]["inputs"]
+                .as_array()
+                .and_then(|rows| rows.iter().find(|row| row["id"].as_str() == Some(id)));
+            let location = input.and_then(|row| row["location"].as_str());
+            let member = location
+                .and_then(|path| path.strip_prefix(".chrono-harness/bin/"))
+                .map(str::as_bytes);
+            let program = location.is_some_and(|path| {
+                selected["tools"].as_array().is_some_and(|tools| {
                     tools
                         .iter()
-                        .any(|tool| tool["program"].as_str() == Some(location))
+                        .any(|tool| tool["program"].as_str() == Some(path))
                 })
+            });
+            crate::capture_mapping::permitted(
+                reply.required.contains(id),
+                target.is_absolute(),
+                input.is_some_and(|row| row["presence"] == "present"),
+                member,
+                input
+                    .and_then(|row| row["sha256"].as_str())
+                    .is_some_and(crate::files::is_digest),
+                program,
+            )
         });
-        if !reply.required.contains(id) || !target.is_absolute() || !permitted {
-            return Err(format!(
-                "E_INPUT_PATH: invalid installed tool mapping for {id}"
-            ));
-        }
+    if let Some(id) = rejected {
+        return Err(format!(
+            "E_INPUT_PATH: invalid installed tool mapping for {id}"
+        ));
     }
     Ok(reply)
 }

@@ -181,6 +181,20 @@ fn capture_uses_fixed_documents_and_checks_the_returned_selection() {
         wrong["installed_paths"] = json!({(id):location});
         assert!(run(wrong).is_err());
     }
+    let mut multiple = image_reply.clone();
+    multiple["required"] = json!(["b", "a"]);
+    multiple["installed_paths"] = json!({"b": "later", "a": "first"});
+    assert_eq!(
+        run(multiple.clone()).err().unwrap(),
+        "E_INPUT_PATH: invalid installed tool mapping for a"
+    );
+    multiple["selection"] = json!({});
+    assert!(
+        run(multiple)
+            .err()
+            .unwrap()
+            .contains("fixed configuration selection")
+    );
     image_reply["required"] = json!([]);
     assert!(run(image_reply).is_err());
     for (field, other) in [
