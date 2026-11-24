@@ -1,0 +1,644 @@
+{
+  "schema_version": 2,
+  "status": "proposed",
+  "files": [
+    {
+      "path": ".chrono-harness/.gitignore",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/FILEMAP.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".chrono-harness/USAGE.md",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".chrono-harness/ci/check.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".chrono-harness/ci/install.sh",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ]
+    },
+    {
+      "path": ".chrono-harness/ci/units.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".chrono-harness/config.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".chrono-harness/judges.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".chrono-harness/pr.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".chrono-harness/projects.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".chrono-harness/rules.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".chrono-harness/template-answers.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".chrono-harness/workflow.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".chrono-harness/worktree.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".config/mise/conf.d/chrono-harness.toml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/bug.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/documentation.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/enhancement.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/question.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".github/workflows/check.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".gitignore",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": "AGENTS.md",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "symlink": "CLAUDE.md"
+    },
+    {
+      "path": "CLAUDE.md",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": "README.md",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": "check.sh",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/inputs-tests/Cargo.lock",
+      "owner": "inputs-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": "crates/inputs-tests/Cargo.toml",
+      "owner": "inputs-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": "crates/inputs-tests/tests/offline_pair.rs",
+      "owner": "inputs-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/inputs-tests/tests/selection.rs",
+      "owner": "inputs-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/inputs-tests/tests/snapshots.rs",
+      "owner": "inputs-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/inputs-tests/tests/snapshots.rs",
+            "operation": "verify.inputs-blobs-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/inputs/Cargo.lock",
+      "owner": "inputs",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": "crates/inputs/Cargo.toml",
+      "owner": "inputs",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": "crates/inputs/src/artifacts.rs",
+      "owner": "inputs",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/inputs/src/command.rs",
+      "owner": "inputs",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/inputs/src/composition.rs",
+      "owner": "inputs",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/inputs/src/lib.rs",
+            "operation": "verify.inputs-blobs"
+          },
+          {
+            "path": "crates/inputs-tests/tests/snapshots.rs",
+            "operation": "verify.inputs-blobs-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/inputs/src/files.rs",
+      "owner": "inputs",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/inputs/src/lib.rs",
+      "owner": "inputs",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/inputs/src/lib.rs",
+            "operation": "verify.inputs-blobs"
+          },
+          {
+            "path": "crates/inputs-tests/tests/snapshots.rs",
+            "operation": "verify.inputs-blobs-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/inputs/src/main.rs",
+      "owner": "inputs",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/inputs/src/selection.rs",
+      "owner": "inputs",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ]
+    },
+    {
+      "path": "crates/inputs/src/snapshot.rs",
+      "owner": "inputs",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ]
+    },
+    {
+      "path": "docs/licenses/methodology-attribution.md",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": "docs/licenses/trureturing-Apache-2.0.txt",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    }
+  ],
+  "project_edges": [],
+  "cost_models": {
+    "unmeasured": {
+      "cpu_ms": null,
+      "wall_ms": null,
+      "peak_rss_bytes": null,
+      "io_bytes": null,
+      "basis": "unknown"
+    }
+  },
+  "test_costs": [
+    {
+      "test": "inputs-tests",
+      "cost": "unmeasured"
+    }
+  ],
+  "execution_plans": {
+    "test:inputs-tests": {
+      "operations": [
+        "verify.inputs-blobs",
+        "verify.inputs-blobs-tests",
+        "inputs.owner-check"
+      ],
+      "timeout_seconds": 600,
+      "output_limit_bytes": 2097152
+    }
+  }
+}
