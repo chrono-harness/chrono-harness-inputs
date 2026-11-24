@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+if [[ $# -eq 0 ]]; then
+  /bin/sh .chrono-harness/ci/install.sh
+  export PATH="$PWD/.chrono-harness/bin:$PATH"
+  export CHRONO_CHECK_SOURCE=${CHRONO_CHECK_SOURCE:-local}
+  exec .chrono-harness/bin/chrono-harness check
+fi
+if [[ $# -ne 1 || $1 != --native ]]; then
+  echo 'usage: ./check.sh [--native]' >&2
+  exit 2
+fi
+
 mkdir -p target
 scratch=$(mktemp -d "$(pwd -P)/target/check.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
@@ -10,26 +21,17 @@ cargo fmt --check --manifest-path crates/inputs/Cargo.toml
 product=crates/inputs/Cargo.toml
 cargo build --locked --message-format=json-render-diagnostics --manifest-path "$product" > "$scratch/build.jsonl"
 cargo fmt --check --manifest-path crates/inputs-tests/Cargo.toml
-CHRONO_INPUTS_BIN="$(cd "$CARGO_TARGET_DIR" && pwd -P)/debug/chrono-inputs" cargo test --locked --manifest-path crates/inputs-tests/Cargo.toml
+CHRONO_INPUTS_BIN="$(cd "$CARGO_TARGET_DIR" && pwd -P)/debug/chrono-inputs" cargo test --color never --locked --manifest-path crates/inputs-tests/Cargo.toml -- --format pretty | tee "$scratch/tests.log"
+for consumer in capture_uses_fixed_documents_and_checks_the_returned_selection pairs_stored_inputs_with_an_empty_tool_search_path; do
+  grep -Fxq "test $consumer ... ok" "$scratch/tests.log" || {
+    echo "E_VERUS_COVERAGE: required snapshot consumer did not pass: $consumer" >&2
+    exit 1
+  }
+done
 
 coverage_failure() {
   echo "E_VERUS_COVERAGE: $*" >&2
   exit 1
-}
-
-verifier=$(command -v "${VERUS:-verus}") || coverage_failure "verifier not found"
-
-prove() {
-  chrono-host-bootstrap run-compiler-proof "$scratch" "$1" "$verifier" "$2" ||
-    coverage_failure "$1: verifier execution failed"
-}
-
-admit_proof() {
-  local label=$1
-  shift
-  chrono-host-bootstrap collect-compiler-proof "$scratch" "$label" "$verifier" \
-    0.2026.04.24.f8e1704 f8e17045c4ac17a02e566b8997070f2eecc255be "$@" ||
-    coverage_failure "$label: required proof result was not admitted"
 }
 
 # Read the exact library selected by Cargo in the build of the tested executable.
@@ -43,12 +45,3 @@ stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
 chrono-host-bootstrap check-compiler-sources native "$stem" \
   src/lib.rs src/composition.rs src/snapshot.rs || coverage_failure "native library differs from required sources"
-
-prove verify.inputs-blobs crates/inputs/src/lib.rs
-prove verify.inputs-blobs-tests crates/inputs-tests/tests/snapshots.rs
-
-admit_proof verify.inputs-blobs crates/inputs/src/lib.rs \
-  crates/inputs/src/composition.rs
-admit_proof verify.inputs-blobs-tests crates/inputs-tests/tests/snapshots.rs \
-  crates/inputs-tests/tests/../../inputs/src/lib.rs \
-  crates/inputs-tests/tests/../../inputs/src/composition.rs
