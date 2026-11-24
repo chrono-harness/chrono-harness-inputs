@@ -27,6 +27,8 @@ pub struct CapturePlan {
     pub effective_config: String,
     pub selection: Option<Value>,
     pub required: BTreeSet<String>,
+    #[serde(default)]
+    pub installed_paths: BTreeMap<String, std::path::PathBuf>,
 }
 
 /// Ask registration to interpret the same fixed documents held by capture.
@@ -53,6 +55,35 @@ pub fn capture_plan(
         return Err(
             "E_INPUT_SNAPSHOT: capture plan differs from the fixed configuration selection".into(),
         );
+    }
+    for (id, target) in &reply.installed_paths {
+        let input = selected["environment"]["inputs"]
+            .as_array()
+            .and_then(|rows| rows.iter().find(|row| row["id"].as_str() == Some(id)));
+        let permitted = input.is_some_and(|row| {
+            let Some(location) = row["location"].as_str() else {
+                return false;
+            };
+            let Some(name) = location.strip_prefix(".chrono-harness/bin/") else {
+                return false;
+            };
+            row["presence"] == "present"
+                && !name.is_empty()
+                && name != "."
+                && name != ".."
+                && !name.contains('/')
+                && row["sha256"].as_str().is_some_and(crate::files::is_digest)
+                && selected["tools"].as_array().is_some_and(|tools| {
+                    tools
+                        .iter()
+                        .any(|tool| tool["program"].as_str() == Some(location))
+                })
+        });
+        if !reply.required.contains(id) || !target.is_absolute() || !permitted {
+            return Err(format!(
+                "E_INPUT_PATH: invalid installed tool mapping for {id}"
+            ));
+        }
     }
     Ok(reply)
 }

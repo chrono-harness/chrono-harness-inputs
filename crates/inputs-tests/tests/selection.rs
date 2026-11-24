@@ -136,6 +136,10 @@ fn capture_uses_fixed_documents_and_checks_the_returned_selection() {
     let config = "config.json";
     let policy =
         json!({"schema_version":3, "protocol":{"timeout_seconds":8,"stdout_limit_bytes":4096}});
+    let mut policy = policy;
+    let image = ".chrono-harness/bin/chrono-ci";
+    policy["tools"] = json!([{"id":"chrono-ci","program":image}]);
+    policy["environment"] = json!({"inputs":[{"id":"ci-image","location":image,"presence":"present","sha256":"a".repeat(64)},{"id":"sdk","location":"sdk","presence":"present","sha256":"b".repeat(64)}]});
     let documents = BTreeMap::from([(config.to_owned(), policy)]);
     let expected = json!({"config":config,"documents":documents,"unit":"example"});
     let endpoint = selection::Endpoint {
@@ -163,6 +167,22 @@ fn capture_uses_fixed_documents_and_checks_the_returned_selection() {
     let plan = run(valid.clone()).unwrap();
     assert_eq!(plan.schema, "chrono-input-snapshot/v2");
     assert_eq!(plan.required.into_iter().collect::<Vec<_>>(), ["sdk"]);
+    let mut image_reply = valid.clone();
+    image_reply["required"] = json!(["ci-image"]);
+    image_reply["installed_paths"] = json!({"ci-image":"/opt/tools/chrono-ci"});
+    assert!(run(image_reply.clone()).is_ok());
+    for (id, location) in [
+        ("ci-image", "relative"),
+        ("sdk", "/opt/tools/sdk"),
+        ("ghost", "/opt/tools/ghost"),
+    ] {
+        let mut wrong = image_reply.clone();
+        wrong["required"] = json!([id]);
+        wrong["installed_paths"] = json!({(id):location});
+        assert!(run(wrong).is_err());
+    }
+    image_reply["required"] = json!([]);
+    assert!(run(image_reply).is_err());
     for (field, other) in [
         ("effective_config", json!("other")),
         ("selection", json!({})),
