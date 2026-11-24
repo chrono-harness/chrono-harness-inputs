@@ -4,9 +4,8 @@ use super::files::{relative_path, valid_host_state_path};
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
-pub const SNAPSHOT_SCHEMA: &str = "chrono-input-snapshot/v1";
-pub const SNAPSHOT_SCHEMA_V2: &str = "chrono-input-snapshot/v2";
-pub const SNAPSHOT_SCHEMA_V3: &str = "chrono-input-snapshot/v3";
+use super::retained_shape::{self, Representation, Version};
+pub use super::retained_shape::{SNAPSHOT_SCHEMA, SNAPSHOT_SCHEMA_V2, SNAPSHOT_SCHEMA_V3};
 
 fn fields<'a>(
     value: &'a Value,
@@ -65,46 +64,35 @@ fn selector(value: &Value) -> Result<(), String> {
     Ok(())
 }
 
-fn file(value: &Value, absence_allowed: bool) -> Result<(), String> {
+fn file(value: &Value, version: Version) -> Result<(), String> {
     let context = "E_INPUT_BLOB";
-    if let Some(absent) = value.get("absent") {
-        fields(value, &["absent"], &[], context)?;
-        if absent != true {
-            return Err("E_INPUT_BLOB: absent must be true".into());
+    let representation = retained_shape::representation(
+        value.get("absent").is_some(),
+        value.get("bytes").is_some(),
+        value.get("blob").is_some(),
+    )?;
+    match representation {
+        Representation::Absent => {
+            fields(value, &["absent"], &[], context)?;
+            retained_shape::admit_absent(version, value["absent"].as_bool())?;
         }
-        if !absence_allowed {
-            return Err("E_INPUT_SNAPSHOT: absence requires snapshot v2".into());
-        }
-        return Ok(());
-    }
-    match (value.get("bytes"), value.get("blob")) {
-        (Some(bytes), None) => {
+        Representation::Bytes => {
             fields(value, &["bytes"], &[], context)?;
-            let valid = bytes.as_array().is_some_and(|bytes| {
-                bytes
-                    .iter()
-                    .all(|n| n.as_u64().is_some_and(|n| n <= u8::MAX.into()))
-            });
-            if !valid {
+            if !value["bytes"]
+                .as_array()
+                .is_some_and(|bytes| bytes.iter().all(|n| retained_shape::is_byte(n.as_u64())))
+            {
                 return Err("E_INPUT_BLOB: invalid retained byte array".into());
             }
         }
-        (None, Some(blob)) => {
+        Representation::Blob => {
             fields(value, &["blob", "sha256", "length"], &[], context)?;
-            if !blob
-                .as_str()
-                .is_some_and(|path| valid_host_state_path(path))
-            {
-                return Err("E_INPUT_BLOB: reference must be within host state".into());
-            }
-            if !value["sha256"].as_str().is_some_and(wire::is_digest) {
-                return Err("E_INPUT_BLOB: invalid digest".into());
-            }
-            if !value["length"].is_u64() {
-                return Err("E_INPUT_BLOB: invalid length".into());
-            }
+            retained_shape::admit_reference(
+                value["blob"].as_str().is_some_and(valid_host_state_path),
+                value["sha256"].as_str().is_some_and(wire::is_digest),
+                value["length"].is_u64(),
+            )?;
         }
-        _ => return Err("E_INPUT_BLOB: expected exactly one bytes or blob representation".into()),
     }
     Ok(())
 }
@@ -124,15 +112,13 @@ pub fn snapshot_shape(value: &Value) -> Result<(), String> {
         &["effective_config_path", "selection"],
         "E_INPUT_SNAPSHOT",
     )?;
-    let schema = value["schema"].as_str();
-    match schema {
-        Some(SNAPSHOT_SCHEMA_V3) => selector(value)?,
-        Some(SNAPSHOT_SCHEMA | SNAPSHOT_SCHEMA_V2) => {
-            if value.get("selection").is_some() || value.get("effective_config_path").is_some() {
-                return Err("E_INPUT_SNAPSHOT: selection binding requires snapshot v3".into());
-            }
-        }
-        _ => return Err("E_INPUT_SNAPSHOT: unsupported snapshot schema".into()),
+    let version = retained_shape::version(
+        value["schema"].as_str(),
+        value.get("selection").is_some(),
+        value.get("effective_config_path").is_some(),
+    )?;
+    if matches!(version, Version::V3) {
+        selector(value)?;
     }
     wire::full_oid(
         value["commit"]
@@ -163,7 +149,7 @@ pub fn snapshot_shape(value: &Value) -> Result<(), String> {
         if id.is_empty() {
             return Err("E_INPUT_SNAPSHOT: empty file ID".into());
         }
-        file(record, schema != Some(SNAPSHOT_SCHEMA))?;
+        file(record, version)?;
     }
     Ok(())
 }
