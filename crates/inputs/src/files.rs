@@ -18,16 +18,13 @@ pub fn digest<T: Serialize>(v: &T) -> Result<String, String> {
     Ok(sha256(&canonical(v)?))
 }
 pub fn is_digest(s: &str) -> bool {
-    s.len() == 64
-        && s.bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    crate::retained_shape::valid_identity(s.as_bytes(), crate::retained_shape::IdentityKind::Digest)
 }
 pub fn full_oid(s: &str) -> Result<(), String> {
-    if (s.len() == 40 || s.len() == 64)
-        && s.bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        && s.bytes().any(|b| b != b'0')
-    {
+    if crate::retained_shape::valid_identity(
+        s.as_bytes(),
+        crate::retained_shape::IdentityKind::Commit,
+    ) {
         Ok(())
     } else {
         Err("expected full nonzero lowercase commit OID".into())
