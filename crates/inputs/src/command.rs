@@ -63,12 +63,12 @@ pub(crate) fn run(
     let lengths: Lengths =
         serde_json::from_slice(&result.stdout[..end]).map_err(|error| error.to_string())?;
     let bytes = &result.stdout[end + 1..];
-    if lengths.stdout_length > spec.output_limit_bytes
-        || lengths.stderr_length > spec.output_limit_bytes
-        || lengths.stdout_length.checked_add(lengths.stderr_length) != Some(bytes.len())
-    {
-        return Err("invalid command result lengths".into());
-    }
-    let (stdout, stderr) = bytes.split_at(lengths.stdout_length);
+    let (stdout, stderr) = crate::command_frame::split(
+        bytes,
+        lengths.stdout_length,
+        lengths.stderr_length,
+        spec.output_limit_bytes,
+    )
+    .ok_or("invalid command result lengths")?;
     Ok((lengths.exit_code, stdout.into(), stderr.into()))
 }
