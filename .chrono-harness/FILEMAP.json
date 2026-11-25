@@ -719,6 +719,34 @@
         "role": "data",
         "roots": []
       }
+    },
+    {
+      "path": ".chrono-harness/install-tools.sh",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ]
+    },
+    {
+      "path": ".config/mise/conf.d/.gitignore",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     }
   ],
   "project_edges": [],

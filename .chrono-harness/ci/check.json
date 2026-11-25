@@ -14,7 +14,8 @@
     "artifacts": [
       ".chrono-harness/bin/",
       ".chrono-harness/state/",
-      "target/"
+      "target/",
+      ".config/mise/conf.d/zz-chrono-harness-resolved.toml"
     ],
     "required_inputs": [
       ".chrono-harness/ci/check.json",
