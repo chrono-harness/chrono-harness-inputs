@@ -219,3 +219,116 @@ fn capture_uses_fixed_documents_and_checks_the_returned_selection() {
     });
     assert_eq!(failure.err().unwrap(), "E_UNIT_ASSIGNMENT: unknown");
 }
+
+#[test]
+fn artifact_session_preserves_requests_replies_and_terminal_order() {
+    use chrono_inputs::test_support::exchange;
+    use std::{
+        cell::{Cell, RefCell},
+        io::{self, Cursor, Write},
+        os::unix::process::ExitStatusExt,
+        process::ExitStatus,
+    };
+
+    struct Request<'a> {
+        bytes: &'a RefCell<Vec<u8>>,
+        closed: &'a Cell<bool>,
+        failure: Option<&'static str>,
+    }
+    impl Write for Request<'_> {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.failure == Some("write") || (self.failure == Some("newline") && bytes == b"\n")
+            {
+                return Err(io::Error::other(self.failure.unwrap()));
+            }
+            self.bytes.borrow_mut().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            if self.failure == Some("flush") {
+                Err(io::Error::other("flush"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    impl Drop for Request<'_> {
+        fn drop(&mut self) {
+            self.closed.set(true);
+        }
+    }
+
+    let bytes = RefCell::new(Vec::new());
+    let closed = Cell::new(false);
+    let open = |failure| {
+        Some(Request {
+            bytes: &bytes,
+            closed: &closed,
+            failure,
+        })
+    };
+    let message = json!({"operation":"accepts"});
+    let unexpected_wait = || panic!("unexpected child wait");
+    let mut input = open(None);
+    let mut replies = Cursor::new(b"{\"Ok\":true}\n{\"Err\":\"producer error\"}\n!\n\n");
+    assert_eq!(
+        exchange(&mut input, &mut replies, &message, unexpected_wait),
+        Ok(true)
+    );
+    assert_eq!(bytes.borrow().as_slice(), b"{\"operation\":\"accepts\"}\n");
+    assert_eq!(
+        exchange::<bool>(&mut input, &mut replies, &message, unexpected_wait),
+        Err("producer error".into())
+    );
+    for _ in 0..2 {
+        assert!(
+            exchange::<bool>(&mut input, &mut replies, &message, unexpected_wait)
+                .unwrap_err()
+                .starts_with("invalid artifact response:")
+        );
+    }
+    let eof = exchange::<bool>(&mut input, &mut replies, &message, || {
+        assert!(closed.get());
+        Ok(ExitStatus::from_raw(7 << 8))
+    });
+    assert_eq!(
+        eof,
+        Err("artifact producer ended before its response: exit status: 7".into())
+    );
+    assert_eq!(
+        exchange::<bool>(&mut input, &mut replies, &message, unexpected_wait),
+        Err("artifact producer has ended".into())
+    );
+
+    for failure in ["write", "newline", "flush"] {
+        let mut replies = Cursor::new(b"unread");
+        assert_eq!(
+            exchange::<bool>(
+                &mut open(Some(failure)),
+                &mut replies,
+                &message,
+                unexpected_wait
+            ),
+            Err(failure.into())
+        );
+        assert_eq!(replies.position(), 0);
+    }
+    let bad_utf8 = exchange::<bool>(
+        &mut open(None),
+        &mut Cursor::new([0xff]),
+        &message,
+        unexpected_wait,
+    );
+    assert_eq!(
+        bad_utf8.unwrap_err(),
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "stream did not contain valid UTF-8"
+        )
+        .to_string()
+    );
+    let wait_error = exchange::<bool>(&mut open(None), &mut Cursor::new([]), &message, || {
+        Err(io::Error::other("wait failed"))
+    });
+    assert_eq!(wait_error, Err("wait failed".into()));
+}
