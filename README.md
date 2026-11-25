@@ -16,8 +16,4 @@
 
 本仓的本地完整检查在 `.chrono-harness/state/collection/check.json` 发布报告。需要保留的结果应在 24 小时内将报告及其引用的原件转存至检出外，并从接收位置读回。各 Verus 操作的编译库和依赖文件由项目判官读取，成功后由当前操作释放。
 
-在长期开发检出上，按实际仓库和 mise 路径在用户 crontab 安装下列条目。每小时调用同一个模板任务；到期报告在读取和交付义务结束后释放，后续维护回收已无引用的原件。机器在线并启用该定时任务时，维护会在没有后续业务命令的情况下运行。
-
-```cron
-0 * * * * cd '/absolute/path/to/repository' && '/absolute/path/to/mise' run harness-maintain-checks >/dev/null
-```
+运行 `mise run harness-maintain-checks` 可执行一轮本仓的检查产物维护。已到期的成功报告在读取和交付义务结束后释放，后续维护轮次回收失去引用的原件。没有业务事件或显式维护时，到期的文件会继续占用磁盘。
