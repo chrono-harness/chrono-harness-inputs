@@ -197,6 +197,7 @@ mod command;
 #[cfg(not(verus_keep_ghost))]
 use artifacts::Store;
 pub mod capture_mapping;
+pub mod command_frame;
 pub mod composition;
 pub mod retained_shape;
 #[cfg(not(verus_keep_ghost))]

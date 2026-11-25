@@ -13,6 +13,19 @@ use vstd::prelude::*;
 use vstd::vpanic as panic;
 
 verus! {
+fn command_result_preserves_both_streams(bytes: &[u8], out: usize, err: usize, limit: usize) {
+    match policy::command_frame::split(bytes, out, err, limit) {
+        Some((first, second)) => {
+            assert(first@.len() == out && second@.len() == err);
+            assert(first@ + second@ == bytes@);
+            assert(out <= limit && err <= limit);
+        }
+        None => {
+            assert(out > limit || err > limit || bytes@.len() != out as int + err as int);
+        }
+    }
+}
+
 struct CompositionImportFixture {
     id: u64,
     blob_error: bool,
