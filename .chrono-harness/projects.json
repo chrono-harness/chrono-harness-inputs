@@ -26,10 +26,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.inputs-blobs.rlib,dep-info=.chrono-harness/state/verify.inputs-blobs.rlib.d",
+            "--emit=link={operation_state}/verify.inputs-blobs.rlib,dep-info={operation_state}/verify.inputs-blobs.rlib.d",
             "crates/inputs/src/lib.rs",
             "-o",
-            ".chrono-harness/state/verify.inputs-blobs.rlib",
+            "{operation_state}/verify.inputs-blobs.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -59,10 +59,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.inputs-blobs-tests.rlib,dep-info=.chrono-harness/state/verify.inputs-blobs-tests.rlib.d",
+            "--emit=link={operation_state}/verify.inputs-blobs-tests.rlib,dep-info={operation_state}/verify.inputs-blobs-tests.rlib.d",
             "crates/inputs-tests/tests/snapshots.rs",
             "-o",
-            ".chrono-harness/state/verify.inputs-blobs-tests.rlib",
+            "{operation_state}/verify.inputs-blobs-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
