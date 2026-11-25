@@ -2,6 +2,42 @@
 use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 
 verus! {
+
+/// The host supplies UTF-8, while lengths and the hexadecimal alphabet are byte-based.
+pub enum IdentityKind { Commit, Digest }
+
+pub open spec fn lower_hex(b: u8) -> bool {
+    48 <= b <= 57 || 97 <= b <= 102
+}
+
+pub fn valid_identity(s: &[u8], kind: IdentityKind) -> (valid: bool)
+    ensures valid == (
+        (forall|j: int| 0 <= j < s.len() ==> lower_hex(#[trigger] s[j]))
+        && match kind {
+            IdentityKind::Digest => s.len() == 64,
+            IdentityKind::Commit => (s.len() == 40 || s.len() == 64)
+                && (exists|j: int| 0 <= j < s.len() && #[trigger] s[j] != 48),
+        }
+    ),
+{
+    let commit = match kind { IdentityKind::Commit => true, IdentityKind::Digest => false };
+    if s.len() != 64 && !(commit && s.len() == 40) { return false; }
+    let mut i = 0;
+    let mut nonzero = false;
+    while i < s.len()
+        invariant i <= s.len(),
+            forall|j: int| 0 <= j < i ==> lower_hex(#[trigger] s[j]),
+            nonzero == (exists|j: int| 0 <= j < i && #[trigger] s[j] != 48),
+        decreases s.len() - i,
+    {
+        let b=s[i];
+        if !((48 <= b && b <= 57) || (97 <= b && b <= 102)) { return false; }
+        if b != 48 { nonzero = true; }
+        i += 1;
+    }
+    !commit || nonzero
+}
+
 pub const SNAPSHOT_SCHEMA: &'static str = "chrono-input-snapshot/v1";
 pub const SNAPSHOT_SCHEMA_V2: &'static str = "chrono-input-snapshot/v2";
 pub const SNAPSHOT_SCHEMA_V3: &'static str = "chrono-input-snapshot/v3";

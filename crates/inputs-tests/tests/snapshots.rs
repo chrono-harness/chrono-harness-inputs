@@ -1577,6 +1577,22 @@ fn capture_mapping_requires_a_registered_single_member() {
     expect_shape(!permitted(true,true,true,Some(nested.as_slice()),true,true));
 }
 
+fn commit_and_digest_domain_boundaries(s: &[u8]) {
+    use policy::retained_shape::{IdentityKind, valid_identity};
+    let digest = valid_identity(s, IdentityKind::Digest);
+    let commit = valid_identity(s, IdentityKind::Commit);
+    if s.len() == 64 { assert(commit ==> digest); }
+    if s.len() == 40 { assert(!digest); }
+    if s.len() != 64 && s.len() != 40 { assert(!digest && !commit); }
+    if forall|j: int| 0 <= j < s.len() ==> #[trigger] s[j] == 48 {
+        assert(!commit);
+        assert(digest == (s.len() == 64));
+    }
+    if exists|j: int| 0 <= j < s.len() && (#[trigger] s[j] == 65 || s[j] > 127) {
+        assert(!digest && !commit);
+    }
+}
+
 fn expect_shape_error<T>(out: Result<T, &str>, expected: &str)
     requires match out { Err(message) => message@ == expected@, _ => false },
 {
