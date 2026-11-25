@@ -1581,6 +1581,7 @@ fn commit_and_digest_domain_boundaries(s: &[u8]) {
     use policy::retained_shape::{IdentityKind, valid_identity};
     let digest = valid_identity(s, IdentityKind::Digest);
     let commit = valid_identity(s, IdentityKind::Commit);
+    proof {
     if s.len() == 64 { assert(commit ==> digest); }
     if s.len() == 40 { assert(!digest); }
     if s.len() != 64 && s.len() != 40 { assert(!digest && !commit); }
@@ -1590,6 +1591,7 @@ fn commit_and_digest_domain_boundaries(s: &[u8]) {
     }
     if exists|j: int| 0 <= j < s.len() && (#[trigger] s[j] == 65 || s[j] > 127) {
         assert(!digest && !commit);
+    }
     }
 }
 
