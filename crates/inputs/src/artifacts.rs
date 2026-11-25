@@ -4,9 +4,9 @@ use serde_json::{Value, json};
 use std::{
     cell::RefCell,
     fs,
-    io::{BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    process::{Child, ChildStdin, ChildStdout, Command, ExitStatus, Stdio},
     rc::Rc,
 };
 
@@ -33,26 +33,39 @@ impl Session {
         })
     }
     fn call<T: DeserializeOwned>(&mut self, request: Value) -> Result<T, String> {
-        let stdin = self.input.as_mut().ok_or("artifact producer has ended")?;
-        serde_json::to_writer(&mut *stdin, &request).map_err(|e| e.to_string())?;
-        stdin
-            .write_all(b"\n")
-            .and_then(|()| stdin.flush())
-            .map_err(|e| e.to_string())?;
-        let mut response = String::new();
-        if self
-            .output
-            .read_line(&mut response)
-            .map_err(|e| e.to_string())?
-            == 0
-        {
-            return Err(format!(
+        exchange(&mut self.input, &mut self.output, &request, || {
+            self.process.wait()
+        })
+    }
+}
+
+pub fn exchange<T: DeserializeOwned>(
+    input: &mut Option<impl Write>,
+    output: &mut impl BufRead,
+    request: &Value,
+    wait: impl FnOnce() -> io::Result<ExitStatus>,
+) -> Result<T, String> {
+    let stdin = input.as_mut().ok_or("artifact producer has ended")?;
+    serde_json::to_writer(&mut *stdin, request).map_err(|e| e.to_string())?;
+    stdin
+        .write_all(b"\n")
+        .and_then(|()| stdin.flush())
+        .map_err(|e| e.to_string())?;
+    let mut response = String::new();
+    let read = output
+        .read_line(&mut response)
+        .map(|count| (count, response))
+        .map_err(|e| e.to_string());
+    match super::artifact_response_line(read)? {
+        Some(line) => serde_json::from_str::<Result<T, String>>(&line)
+            .map_err(|e| format!("invalid artifact response: {e}"))?,
+        None => {
+            drop(input.take());
+            Err(format!(
                 "artifact producer ended before its response: {}",
-                self.process.wait().map_err(|e| e.to_string())?
-            ));
+                wait().map_err(|e| e.to_string())?
+            ))
         }
-        serde_json::from_str::<Result<T, String>>(&response)
-            .map_err(|e| format!("invalid artifact response: {e}"))?
     }
 }
 impl Drop for Session {

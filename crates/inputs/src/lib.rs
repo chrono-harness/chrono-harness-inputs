@@ -181,6 +181,21 @@ pub fn parse_input_command(args: &[String]) -> (out: Result<InputAction<'_>, Str
     Ok(InputAction::Command(InputCommand { kind, arguments: args }))
 }
 
+/// A completed line belongs to the decoder. EOF belongs to the producer's exit report.
+pub fn artifact_response_line<T>(read: Result<(usize, T), String>) -> (out: Result<Option<T>, String>)
+    ensures match read {
+        Err(error) => out == Err::<Option<T>, String>(error),
+        Ok((count, line)) => if count == 0 { out == Ok::<Option<T>, String>(None) }
+            else { out == Ok::<Option<T>, String>(Some(line)) },
+    },
+{
+    match read {
+        Err(error) => Err(error),
+        Ok((0, _)) => Ok(None),
+        Ok((_, line)) => Ok(Some(line)),
+    }
+}
+
 /// All current capture and composition paths use the same exact blob identity.
 pub fn blob_identity_matches(actual: &str, actual_length: u64,
     expected: &str, expected_length: u64) -> (matches: bool)
@@ -204,6 +219,7 @@ pub mod retained_shape;
 mod selection;
 #[cfg(all(feature = "test-support", not(verus_keep_ghost)))]
 pub mod test_support {
+    pub use crate::artifacts::exchange;
     pub use crate::selection::{Endpoint, capture_plan, selected_tests};
     pub use crate::snapshot::snapshot_shape;
 }

@@ -13,6 +13,17 @@ use vstd::prelude::*;
 use vstd::vpanic as panic;
 
 verus! {
+fn artifact_line_keeps_errors_and_distinguishes_eof_from_any_complete_reply(count: usize, line: u8, error: String) {
+    let failed = policy::artifact_response_line::<u8>(Err(error));
+    assert(failed == Err::<Option<u8>, String>(error));
+    let reply = policy::artifact_response_line(Ok((count, line)));
+    if count == 0 {
+        assert(reply == Ok::<Option<u8>, String>(None));
+    } else {
+        assert(reply == Ok::<Option<u8>, String>(Some(line)));
+    }
+}
+
 fn command_result_preserves_both_streams(bytes: &[u8], out: usize, err: usize, limit: usize) {
     match policy::command_frame::split(bytes, out, err, limit) {
         Some((first, second)) => {
