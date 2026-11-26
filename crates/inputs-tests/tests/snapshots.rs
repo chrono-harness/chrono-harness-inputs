@@ -20,6 +20,18 @@ mod selection_expectations;
 mod roadmap;
 
 verus! {
+#[cfg(verus_keep_ghost)]
+fn stream_length_covers_exact_fit_empty_and_overflow(previous: u64) {
+    let free = u64::MAX - previous;
+    let exact = policy::copied_length(previous, free);
+    let empty = policy::copied_length(previous, 0);
+    assert(exact == Some(u64::MAX) && empty == Some(previous));
+    if previous > 0 {
+        let over = policy::copied_length(previous, free + 1);
+        assert(over.is_none());
+    }
+}
+
 fn deployed_installer() -> &'static str { include_str!("../../../.chrono-harness/install-tools.sh") }
 
 fn matches_installer(digest: &str) -> (matched: bool)
@@ -1702,4 +1714,28 @@ fn retained_snapshot_versions_and_file_forms_preserve_error_order() {
 fn installed_setup_matches_the_rendered_host() {
     use chrono_inputs::test_support::sha256;
     assert!(matches_installer(&sha256(deployed_installer().as_bytes())));
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn retained_stream_and_memory_use_the_same_original_bytes() {
+    use chrono_inputs::test_support::{copy_hashed, sha256};
+    let multiple_chunks = vec![0xa5; 65_537];
+    for (input, expected) in [
+        (
+            &[][..],
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        ),
+        (
+            multiple_chunks.as_slice(),
+            "a3253bfa7d790dc6f5d41b75421bcc2c606e8043f9fad4331e8aae0a6c504cfa",
+        ),
+    ] {
+        let mut copied = Vec::new();
+        let (digest, length) = copy_hashed(input, &mut copied).unwrap();
+        assert_eq!(copied, input);
+        assert_eq!(length, input.len() as u64);
+        assert_eq!(digest, expected);
+        assert_eq!(sha256(input), expected);
+    }
 }
