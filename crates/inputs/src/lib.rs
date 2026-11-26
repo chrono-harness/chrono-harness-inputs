@@ -221,7 +221,7 @@ pub use selection::{Finding, contains_error, has_diagnostic, query_succeeded};
 #[cfg(all(feature = "test-support", not(verus_keep_ghost)))]
 pub mod test_support {
     pub use crate::artifacts::exchange;
-    pub use crate::files::sha256;
+    pub use crate::files::{copy_hashed, sha256};
     pub use crate::selection::{Endpoint, capture_plan, selected_tests};
     pub use crate::snapshot::snapshot_shape;
 }
@@ -404,10 +404,11 @@ mod custody {
     }
 }
 
-#[cfg(not(verus_keep_ghost))]
 mod files;
 #[cfg(not(verus_keep_ghost))]
 use files as wire;
+#[cfg(verus_keep_ghost)]
+pub(crate) use files::copied_length;
 #[cfg(not(verus_keep_ghost))]
 use files::{copy_hashed, file_identity, json, no_symlink_parents, observe_file, sha256};
 mod snapshot;

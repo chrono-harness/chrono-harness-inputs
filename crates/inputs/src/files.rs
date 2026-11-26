@@ -1,25 +1,60 @@
 //! On-disk file identities and relative addresses used by input snapshots.
+#[cfg(not(verus_keep_ghost))]
+use std::fmt::Write as _;
+#[cfg(not(verus_keep_ghost))]
+use vstd::prelude::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub(crate) fn copied_length(previous: u64, count: u64) -> (total: Option<u64>)
+    ensures match total {
+        Some(size) => size as int == previous as int + count as int,
+        None => previous as int + count as int > u64::MAX,
+    },
+{
+    previous.checked_add(count)
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn digest_text(digest: [u8; 32]) -> String {
+    let mut text = String::with_capacity(64);
+    for byte in digest {
+        write!(text, "{byte:02x}").expect("writing to a String is infallible");
+    }
+    text
+}
+#[cfg(not(verus_keep_ghost))]
 use serde::Serialize;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
 use sha2::{Digest, Sha256};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
 };
 
+#[cfg(not(verus_keep_ghost))]
 pub fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    digest_text(Sha256::digest(bytes).into())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn canonical<T: Serialize>(v: &T) -> Result<Vec<u8>, String> {
     serde_jcs::to_vec(v).map_err(|e| e.to_string())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn digest<T: Serialize>(v: &T) -> Result<String, String> {
     Ok(sha256(&canonical(v)?))
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn is_digest(s: &str) -> bool {
     crate::retained_shape::valid_identity(s.as_bytes(), crate::retained_shape::IdentityKind::Digest)
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn full_oid(s: &str) -> Result<(), String> {
     if crate::retained_shape::valid_identity(
         s.as_bytes(),
@@ -30,6 +65,7 @@ pub fn full_oid(s: &str) -> Result<(), String> {
         Err("expected full nonzero lowercase commit OID".into())
     }
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn relative_path(value: &str) -> Result<(), String> {
     if value.is_empty()
         || value.starts_with('/')
@@ -42,12 +78,14 @@ pub fn relative_path(value: &str) -> Result<(), String> {
     }
     Ok(())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn valid_host_state_path(value: &str) -> bool {
     value
         .strip_prefix(".chrono-harness/state/")
         .is_some_and(|tail| !tail.is_empty())
         && relative_path(value).is_ok()
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn no_symlink_parents(root: &Path, relative: &str) -> Result<PathBuf, String> {
     relative_path(relative)?;
     let mut path = root.to_path_buf();
@@ -64,6 +102,7 @@ pub fn no_symlink_parents(root: &Path, relative: &str) -> Result<PathBuf, String
     }
     Ok(path)
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn copy_hashed(mut input: impl Read, mut output: impl Write) -> Result<(String, u64), String> {
     let mut hash = Sha256::new();
     let mut length = 0u64;
@@ -77,12 +116,11 @@ pub fn copy_hashed(mut input: impl Read, mut output: impl Write) -> Result<(Stri
             .write_all(&buffer[..count])
             .map_err(|e| e.to_string())?;
         hash.update(&buffer[..count]);
-        length = length
-            .checked_add(count as u64)
-            .ok_or("file length overflow")?;
+        length = copied_length(length, count as u64).ok_or("file length overflow")?;
     }
-    Ok((format!("{:x}", hash.finalize()), length))
+    Ok((digest_text(hash.finalize().into()), length))
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn file_identity(path: &Path) -> Result<(String, u64), String> {
     let input = fs::File::open(path).map_err(|e| e.to_string())?;
     if !input.metadata().map_err(|e| e.to_string())?.is_file() {
@@ -90,6 +128,7 @@ pub fn file_identity(path: &Path) -> Result<(String, u64), String> {
     }
     copy_hashed(input, std::io::sink())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn observe_file(path: &Path) -> Result<Option<(String, u64)>, String> {
     let mut prefix = PathBuf::new();
     for component in path.components() {
@@ -121,14 +160,15 @@ pub fn observe_file(path: &Path) -> Result<Option<(String, u64)>, String> {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn json(bytes: &[u8]) -> Result<serde_json::Value, String> {
     let value: serde_yaml_ng::Value =
         serde_json::from_slice(bytes).map_err(|error: serde_json::Error| {
             let message = error.to_string();
-            if let Some((quoted, location)) = message
+            if let Some((key, location)) = message
                 .strip_prefix("duplicate entry with key ")
                 .and_then(|tail| tail.rsplit_once(" at line "))
-                && let Ok(key) = litrs::StringLit::parse(quoted)
+                .and_then(|(quoted, at)| litrs::StringLit::parse(quoted).ok().map(|key| (key, at)))
             {
                 return format!("duplicate JSON member {} at line {location}", key.value());
             }
@@ -137,6 +177,7 @@ pub fn json(bytes: &[u8]) -> Result<serde_json::Value, String> {
     serde_json::to_value(value).map_err(|error| error.to_string())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
     serde_json::from_value(json(bytes)?).map_err(|e| e.to_string())
 }
