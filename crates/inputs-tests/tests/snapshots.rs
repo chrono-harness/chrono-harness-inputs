@@ -16,18 +16,16 @@ use vstd::vpanic as panic;
 #[path = "selection.rs"]
 mod selection_expectations;
 
-verus! {
-fn deployed_host_inputs() -> (&'static str, &'static str, &'static str) {
-    (include_str!("../../../.github/roadmap.cjs"),
-     include_str!("../../../.github/workflows/issue-roadmap.yml"),
-     include_str!("../../../.chrono-harness/install-tools.sh"))
-}
+#[path = "../../../.chrono-harness/ci/roadmap.rs"]
+mod roadmap;
 
-fn matches_host_template(roadmap: &str, workflow: &str, installer: &str) -> (matched: bool)
-    ensures matched == (roadmap@ == "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9"@ && workflow@ == "987033d236777d6829eb06716c914d996fe3e554af178bc2f0eab86d1110cf4d"@ && installer@ == "463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941"@),
+verus! {
+fn deployed_installer() -> &'static str { include_str!("../../../.chrono-harness/install-tools.sh") }
+
+fn matches_installer(digest: &str) -> (matched: bool)
+    ensures matched == (digest@ == "463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941"@)
 {
-    <&str>::exec_eq(roadmap, "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9") && <&str>::exec_eq(workflow, "987033d236777d6829eb06716c914d996fe3e554af178bc2f0eab86d1110cf4d")
-        && <&str>::exec_eq(installer, "463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941")
+    <&str>::exec_eq(digest, "463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941")
 }
 
 fn artifact_line_keeps_errors_and_distinguishes_eof_from_any_complete_reply(count: usize, line: u8, error: String) {
@@ -1701,12 +1699,7 @@ fn retained_snapshot_versions_and_file_forms_preserve_error_order() {
 
 #[cfg(not(verus_keep_ghost))]
 #[test]
-fn installed_roadmap_and_setup_match_the_rendered_host() {
+fn installed_setup_matches_the_rendered_host() {
     use chrono_inputs::test_support::sha256;
-    let (roadmap, workflow, installer) = deployed_host_inputs();
-    assert!(matches_host_template(
-        &sha256(roadmap.as_bytes()),
-        &sha256(workflow.as_bytes()),
-        &sha256(installer.as_bytes()),
-    ));
+    assert!(matches_installer(&sha256(deployed_installer().as_bytes())));
 }

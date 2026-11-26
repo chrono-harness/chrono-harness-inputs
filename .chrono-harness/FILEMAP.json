@@ -66,6 +66,27 @@
       ]
     },
     {
+      "path": ".chrono-harness/ci/roadmap.rs",
+      "owner": "inputs-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/inputs-tests/tests/snapshots.rs",
+            "operation": "verify.inputs-blobs-tests"
+          }
+        ]
+      }
+    },
+    {
       "path": ".chrono-harness/ci/units.json",
       "owner": "host",
       "surface": "product",
