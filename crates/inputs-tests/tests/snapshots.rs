@@ -1739,3 +1739,17 @@ fn retained_stream_and_memory_use_the_same_original_bytes() {
         assert_eq!(sha256(input), expected);
     }
 }
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn snapshot_numbers_match_the_runner_binary64_wire_format() {
+    use chrono_inputs::test_support::canonical;
+    use serde_json::json;
+    let config = json!({
+        "limits": [9_007_199_254_740_991_u64, 9_007_199_254_740_993_u64,
+                   -9_007_199_254_740_993_i64, u64::MAX, i64::MIN, -0.0],
+        "label": "9007199254740993"
+    });
+    let expected = br#"{"label":"9007199254740993","limits":[9007199254740991,9007199254740992,-9007199254740992,18446744073709552000,-9223372036854776000,0]}"#;
+    assert_eq!(canonical(&config).unwrap(), expected);
+}

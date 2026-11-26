@@ -43,12 +43,36 @@ pub fn sha256(bytes: &[u8]) -> String {
     digest_text(Sha256::digest(bytes).into())
 }
 #[cfg(not(verus_keep_ghost))]
-pub fn canonical<T: Serialize>(v: &T) -> Result<Vec<u8>, String> {
-    serde_jcs::to_vec(v).map_err(|e| e.to_string())
+struct SnapshotNumberView<'a>(&'a Value);
+
+#[cfg(not(verus_keep_ghost))]
+impl Serialize for SnapshotNumberView<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self.0 {
+            // The runner computes semantic digests with ECMAScript binary64 numbers.
+            Value::Number(number) => serializer.serialize_f64(
+                number
+                    .as_f64()
+                    .ok_or_else(|| serde::ser::Error::custom("invalid JSON number"))?,
+            ),
+            Value::Array(values) => serializer.collect_seq(values.iter().map(SnapshotNumberView)),
+            Value::Object(fields) => serializer.collect_map(
+                fields
+                    .iter()
+                    .map(|(key, value)| (key, SnapshotNumberView(value))),
+            ),
+            value => value.serialize(serializer),
+        }
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub fn canonical(value: &Value) -> Result<Vec<u8>, String> {
+    serde_jcs::to_vec(&SnapshotNumberView(value)).map_err(|e| e.to_string())
 }
 #[cfg(not(verus_keep_ghost))]
-pub fn digest<T: Serialize>(v: &T) -> Result<String, String> {
-    Ok(sha256(&canonical(v)?))
+pub fn digest(value: &Value) -> Result<String, String> {
+    Ok(sha256(&canonical(value)?))
 }
 #[cfg(not(verus_keep_ghost))]
 pub fn is_digest(s: &str) -> bool {
