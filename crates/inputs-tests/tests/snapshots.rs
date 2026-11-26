@@ -1566,6 +1566,42 @@ verus! {
 fn expect_shape(ok: bool) requires ok, { if !ok { panic!(); } }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn fields_preserve_first_errors_before_acceptance() {
+    broadcast use vstd::array::group_array_axioms;
+    use policy::{FieldError, first_field_error, field_declared};
+    let names = ["a", "b", "c"];
+    proof { reveal_strlit("a"); reveal_strlit("b"); reveal_strlit("c");
+        assert("a"@[0] != "b"@[0]); assert("a"@[0] != "c"@[0]); }
+    let present_key = |name: &str| -> (out: bool) ensures out == (name@ == "a"@),
+        { <&str>::exec_eq(name, "a") };
+    proof {
+        assert(names@[0]@ == "a"@ && names@[1]@ == "b"@ && names@[2]@ == "c"@);
+        assert(!present_key.ensures((names@[1],), true));
+        assert(!present_key.ensures((names@[0],), false));
+    }
+    let missing = first_field_error(&names, present_key,
+        || -> (result: Option<&str>) requires false,
+        { if true { panic!(); } None });
+    proof { if let Some(FieldError::Missing(i)) = missing {
+        if i > 1 { assert(present_key.ensures((names@[1],), true)); }
+        if i == 0 { assert(present_key.ensures((names@[0],), false)); }
+    } }
+    expect_shape(matches!(missing, Some(FieldError::Missing(1))));
+    let unexpected = first_field_error(&names,
+        |_name: &str| -> (out: bool) ensures out, { true },
+        || -> (out: Option<&str>) ensures out == Some("x"), { Some("x") });
+    expect_shape(matches!(unexpected, Some(FieldError::Unexpected(s)) if <&str>::exec_eq(s, "x")));
+    let empty = first_field_error(&[], |_name: &str| -> (out: bool) ensures !out, { false },
+        || -> (out: Option<&str>) ensures out is None, { None });
+    expect_shape(matches!(empty, None));
+    let required = field_declared(&names, "b");
+    let optional = field_declared(&["a"], "a");
+    let absent = field_declared(&[], "a");
+    let other = field_declared(&["a"], "b");
+    expect_shape(required && optional && !absent && !other);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn capture_mapping_requires_a_registered_single_member() {
     use policy::capture_mapping::{permitted, same_endpoint};
     let ci = [99u8, 105u8];

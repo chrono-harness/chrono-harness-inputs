@@ -1,12 +1,78 @@
 //! Wire format accepted by offline input transport.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+use vstd::contrib::exec_spec::ExecSpecEq;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub enum FieldError<'a> { Missing(usize), Unexpected(&'a str) }
+
+pub fn field_declared(names: &[&str], key: &str) -> (found: bool)
+    ensures found == (exists|i: int| 0 <= i < names.len() && (#[trigger] names@[i])@ == key@),
+{
+    let mut i = 0;
+    while i < names.len()
+        invariant i <= names.len(), forall|j: int| 0 <= j < i ==> (#[trigger] names@[j])@ != key@,
+        decreases names.len() - i,
+    {
+        if <&str>::exec_eq(names[i], key) { return true; }
+        i += 1;
+    }
+    false
+}
+
+/// Unknown fields are read in the deserializer's iteration order, after all required lookups.
+pub fn first_field_error<'a, P, U>(required: &[&str], present: P, unexpected: U)
+    -> (error: Option<FieldError<'a>>)
+    where P: Fn(&str) -> bool, U: FnOnce() -> Option<&'a str>,
+    requires forall|name: &str| present.requires((name,)),
+        (forall|j: int| 0 <= j < required.len()
+            ==> #[trigger] present.ensures((required@[j],), true)) ==> unexpected.requires(()),
+    ensures match error {
+        Some(FieldError::Missing(i)) => i < required.len()
+            && present.ensures((required@[i as int],), false)
+            && forall|j: int| 0 <= j < i ==> #[trigger] present.ensures((required@[j],), true),
+        other => (forall|j: int| 0 <= j < required.len()
+            ==> #[trigger] present.ensures((required@[j],), true))
+            && match other {
+                Some(FieldError::Unexpected(name)) => unexpected.ensures((), Some(name)),
+                None => unexpected.ensures((), None),
+                _ => false,
+            },
+    },
+{
+    let mut i = 0;
+    while i < required.len()
+        invariant i <= required.len(), forall|name: &str| present.requires((name,)),
+            forall|j: int| 0 <= j < i ==> #[trigger] present.ensures((required@[j],), true),
+        decreases required.len() - i,
+    {
+        if !present(required[i]) { return Some(FieldError::Missing(i)); }
+        i += 1;
+    }
+    match unexpected() {
+        Some(name) => Some(FieldError::Unexpected(name)),
+        None => None,
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use super::files as wire;
+#[cfg(not(verus_keep_ghost))]
 use super::files::{relative_path, valid_host_state_path};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Map, Value};
+#[cfg(not(verus_keep_ghost))]
 use std::collections::BTreeSet;
 
+#[cfg(not(verus_keep_ghost))]
 use super::retained_shape::{self, Representation, Version};
+#[cfg(not(verus_keep_ghost))]
 pub use super::retained_shape::{SNAPSHOT_SCHEMA, SNAPSHOT_SCHEMA_V2, SNAPSHOT_SCHEMA_V3};
 
+#[cfg(not(verus_keep_ghost))]
 fn fields<'a>(
     value: &'a Value,
     required: &[&str],
@@ -16,19 +82,29 @@ fn fields<'a>(
     let object = value
         .as_object()
         .ok_or_else(|| format!("{context}: expected object"))?;
-    for name in required {
-        if !object.contains_key(*name) {
-            return Err(format!("{context}: missing field {name}"));
+    let error = first_field_error(
+        required,
+        |name| object.contains_key(name),
+        || {
+            object
+                .keys()
+                .map(String::as_str)
+                .find(|name| !field_declared(required, name) && !field_declared(optional, name))
+        },
+    );
+    match error {
+        Some(FieldError::Missing(index)) => {
+            return Err(format!("{context}: missing field {}", required[index]));
         }
-    }
-    for name in object.keys() {
-        if !(required.contains(&name.as_str()) || optional.contains(&name.as_str())) {
+        Some(FieldError::Unexpected(name)) => {
             return Err(format!("{context}: unknown field {name}"));
         }
+        None => {}
     }
     Ok(object)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn selector(value: &Value) -> Result<(), String> {
     let path = value["effective_config_path"]
         .as_str()
@@ -64,6 +140,7 @@ fn selector(value: &Value) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn file(value: &Value, version: Version) -> Result<(), String> {
     let context = "E_INPUT_BLOB";
     let representation = retained_shape::representation(
@@ -98,6 +175,7 @@ fn file(value: &Value, version: Version) -> Result<(), String> {
 }
 
 /// Admit every record before the transport attempts any file I/O.
+#[cfg(not(verus_keep_ghost))]
 pub fn snapshot_shape(value: &Value) -> Result<(), String> {
     fields(
         value,
@@ -155,6 +233,7 @@ pub fn snapshot_shape(value: &Value) -> Result<(), String> {
 }
 
 /// Compose binds captured values to the endpoint and does not materialize a process environment.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn bind_environment(
     credentials: &BTreeSet<String>,
     config: &Value,
