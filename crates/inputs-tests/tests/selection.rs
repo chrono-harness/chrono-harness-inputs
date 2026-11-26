@@ -1,7 +1,103 @@
+#![allow(unexpected_cfgs)]
+#[cfg(verus_keep_ghost)]
+use super::policy;
+#[cfg(not(verus_keep_ghost))]
+use chrono_inputs as policy;
+#[cfg(not(verus_keep_ghost))]
+use vstd::prelude::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::{prelude::*, vpanic as panic};
+
+verus! {
+#[cfg(verus_keep_ghost)]
+fn only_exact_error_blocks_routes(findings: &[policy::Finding], at: usize)
+    requires at < findings.len(),
+{
+    let rejected = policy::contains_error(findings);
+    proof {
+        if findings[at as int].level_view() == "error"@ { assert(rejected); }
+        if forall|i: int| 0 <= i < findings.len() ==>
+            #[trigger] findings[i].level_view() != "error"@ { assert(!rejected); }
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn query_status_and_empty_diagnostics() {
+    proof { reveal_strlit(""); reveal_strlit("\n"); }
+    let empty: [policy::Finding; 0] = [];
+    let no_findings = !policy::contains_error(&empty);
+    let ok = policy::query_succeeded(0);
+    let positive = policy::query_succeeded(2);
+    let negative = policy::query_succeeded(-1);
+    let absent = policy::has_diagnostic("");
+    let newline = policy::has_diagnostic("\n");
+    if !no_findings || !ok || positive || negative || absent || !newline { panic!(); }
+}
+
+}
+
+#[cfg(not(verus_keep_ghost))]
 use chrono_inputs::test_support as selection;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::collections::BTreeMap;
 
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn routes_only_after_a_complete_selection_without_errors() {
+    let protocol = json!({"timeout_seconds":3, "stdout_limit_bytes":4096});
+    let env = BTreeMap::from([("PATH".into(), "/fixed".into())]);
+    for (levels, blocked) in [
+        (vec![], false),
+        (vec!["warning", "Error", "error "], false),
+        (vec!["warning", "error", "notice"], true),
+        (vec!["error", "error"], true),
+    ] {
+        let findings: Vec<_> = levels
+            .iter()
+            .enumerate()
+            .map(|(i, level)| {
+                json!({"code":format!("C{i}"), "level":level, "message":format!("message {i}"),
+                   "delta_refs":["/request"], "causes":[]})
+            })
+            .collect();
+        let mut calls = Vec::new();
+        let selected =
+            selection::selected_tests(&json!({}), json!({}), &protocol, &env, |command, input| {
+                calls.push(command.program.clone());
+                match command.program.as_str() {
+                    "chrono-judge-filemap" => Ok((
+                        0,
+                        serde_json::to_vec(&json!({
+                            "tests":["current"], "retired_tests":["retired"], "findings":findings
+                        }))
+                        .unwrap(),
+                        vec![],
+                    )),
+                    "chrono-judge-routes" => {
+                        let request: Value = serde_json::from_slice(input).unwrap();
+                        assert_eq!(request["tests"], json!(["current"]));
+                        assert_eq!(request["retired_tests"], json!(["retired"]));
+                        Ok((0, br#"["selected"]"#.to_vec(), vec![]))
+                    }
+                    other => panic!("unexpected command {other}"),
+                }
+            });
+        if blocked {
+            let error = selected.unwrap_err();
+            let actual: Vec<Value> =
+                serde_json::from_str(error.strip_prefix("E_COMPOSE_SELECTION: ").unwrap()).unwrap();
+            assert_eq!(actual, findings);
+            assert_eq!(calls, ["chrono-judge-filemap"]);
+        } else {
+            assert_eq!(selected.unwrap(), ["selected".to_owned()].into());
+            assert_eq!(calls, ["chrono-judge-filemap", "chrono-judge-routes"]);
+        }
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn sends_fixed_commits_to_filemap_and_its_test_ids_to_routes() {
     let commits = json!({"config":"cfg","base":"old","candidate":"new"});
@@ -50,6 +146,7 @@ fn sends_fixed_commits_to_filemap_and_its_test_ids_to_routes() {
     );
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn reports_original_findings_and_transports_failures() {
     let finding = json!({"code":"E_FILEMAP","level":"error","message":"missing edge","delta_refs":["/request"],"causes":[]});
@@ -131,6 +228,7 @@ fn reports_original_findings_and_transports_failures() {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn capture_uses_fixed_documents_and_checks_the_returned_selection() {
     let config = "config.json";
@@ -220,6 +318,7 @@ fn capture_uses_fixed_documents_and_checks_the_returned_selection() {
     assert_eq!(failure.err().unwrap(), "E_UNIT_ASSIGNMENT: unknown");
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn artifact_session_preserves_requests_replies_and_terminal_order() {
     use chrono_inputs::test_support::exchange;
