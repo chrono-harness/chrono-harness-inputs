@@ -220,6 +220,7 @@ mod selection;
 #[cfg(all(feature = "test-support", not(verus_keep_ghost)))]
 pub mod test_support {
     pub use crate::artifacts::exchange;
+    pub use crate::files::sha256;
     pub use crate::selection::{Endpoint, capture_plan, selected_tests};
     pub use crate::snapshot::snapshot_shape;
 }
