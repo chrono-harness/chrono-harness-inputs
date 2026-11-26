@@ -408,7 +408,6 @@ mod files;
 use files as wire;
 #[cfg(not(verus_keep_ghost))]
 use files::{copy_hashed, file_identity, json, no_symlink_parents, observe_file, sha256};
-#[cfg(not(verus_keep_ghost))]
 mod snapshot;
 #[cfg(not(verus_keep_ghost))]
 pub use composition::{Manifest as CompositionManifest, Source as CompositionSource, compose};
@@ -418,6 +417,7 @@ pub use custody::Produced;
 use serde_json::{Value, json as value};
 #[cfg(not(verus_keep_ghost))]
 use snapshot::snapshot_shape;
+pub use snapshot::{FieldError, field_declared, first_field_error};
 #[cfg(not(verus_keep_ghost))]
 pub use snapshot::{SNAPSHOT_SCHEMA, SNAPSHOT_SCHEMA_V2, SNAPSHOT_SCHEMA_V3};
 #[cfg(not(verus_keep_ghost))]

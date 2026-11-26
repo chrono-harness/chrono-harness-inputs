@@ -715,7 +715,20 @@
           "kind": "test-execution",
           "to": "test:inputs-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/inputs/src/lib.rs",
+            "operation": "verify.inputs-blobs"
+          },
+          {
+            "path": "crates/inputs-tests/tests/snapshots.rs",
+            "operation": "verify.inputs-blobs-tests"
+          }
+        ]
+      }
     },
     {
       "path": "docs/licenses/methodology-attribution.md",
