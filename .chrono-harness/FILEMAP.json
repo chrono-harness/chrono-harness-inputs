@@ -98,6 +98,27 @@
       }
     },
     {
+      "path": ".chrono-harness/install-tools.sh",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/inputs-tests/tests/snapshots.rs",
+            "operation": "verify.inputs-blobs-tests"
+          }
+        ]
+      }
+    },
+    {
       "path": ".chrono-harness/judges.json",
       "owner": "host",
       "surface": "product",
@@ -227,6 +248,22 @@
       }
     },
     {
+      "path": ".config/mise/conf.d/.gitignore",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
       "path": ".config/mise/conf.d/chrono-harness.toml",
       "owner": "host",
       "surface": "product",
@@ -253,28 +290,6 @@
           "to": "test:inputs-tests"
         }
       ],
-      "verification": {
-        "role": "data",
-        "roots": []
-      }
-    },
-    {
-      "path": ".github/workflows/dependabot-auto-merge.yml",
-      "owner": "host",
-      "surface": "product",
-      "cost": "unmeasured",
-      "edges": [],
-      "verification": {
-        "role": "data",
-        "roots": []
-      }
-    },
-    {
-      "path": ".github/dependabot.yml",
-      "owner": "host",
-      "surface": "product",
-      "cost": "unmeasured",
-      "edges": [],
       "verification": {
         "role": "data",
         "roots": []
@@ -336,6 +351,17 @@
       }
     },
     {
+      "path": ".github/dependabot.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
       "path": ".github/roadmap.cjs",
       "owner": "host",
       "surface": "product",
@@ -352,19 +378,19 @@
       }
     },
     {
-      "path": ".github/workflows/issue-roadmap.yml",
+      "path": ".github/workflows/actions.lock",
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": [],
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ],
       "verification": {
-        "role": "program",
-        "roots": [
-          {
-            "path": "crates/inputs-tests/tests/snapshots.rs",
-            "operation": "verify.inputs-blobs-tests"
-          }
-        ]
+        "role": "data",
+        "roots": []
       }
     },
     {
@@ -381,6 +407,33 @@
       "verification": {
         "role": "data",
         "roots": []
+      }
+    },
+    {
+      "path": ".github/workflows/dependabot-auto-merge.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".github/workflows/issue-roadmap.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/inputs-tests/tests/snapshots.rs",
+            "operation": "verify.inputs-blobs-tests"
+          }
+        ]
       }
     },
     {
@@ -582,18 +635,6 @@
       ]
     },
     {
-      "path": "crates/inputs/src/command.rs",
-      "owner": "inputs",
-      "surface": "product",
-      "cost": "unmeasured",
-      "edges": [
-        {
-          "kind": "test-execution",
-          "to": "test:inputs-tests"
-        }
-      ]
-    },
-    {
       "path": "crates/inputs/src/capture_mapping.rs",
       "owner": "inputs",
       "surface": "product",
@@ -617,6 +658,18 @@
           }
         ]
       }
+    },
+    {
+      "path": "crates/inputs/src/command.rs",
+      "owner": "inputs",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:inputs-tests"
+        }
+      ]
     },
     {
       "path": "crates/inputs/src/command_frame.rs",
@@ -816,43 +869,6 @@
     },
     {
       "path": "rust-toolchain.toml",
-      "owner": "host",
-      "surface": "product",
-      "cost": "unmeasured",
-      "edges": [
-        {
-          "kind": "test-execution",
-          "to": "test:inputs-tests"
-        }
-      ],
-      "verification": {
-        "role": "data",
-        "roots": []
-      }
-    },
-    {
-      "path": ".chrono-harness/install-tools.sh",
-      "owner": "host",
-      "surface": "product",
-      "cost": "unmeasured",
-      "edges": [
-        {
-          "kind": "test-execution",
-          "to": "test:inputs-tests"
-        }
-      ],
-      "verification": {
-        "role": "program",
-        "roots": [
-          {
-            "path": "crates/inputs-tests/tests/snapshots.rs",
-            "operation": "verify.inputs-blobs-tests"
-          }
-        ]
-      }
-    },
-    {
-      "path": ".config/mise/conf.d/.gitignore",
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
