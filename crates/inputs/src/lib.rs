@@ -215,8 +215,9 @@ pub mod capture_mapping;
 pub mod command_frame;
 pub mod composition;
 pub mod retained_shape;
-#[cfg(not(verus_keep_ghost))]
 mod selection;
+#[cfg(any(verus_keep_ghost, feature = "test-support"))]
+pub use selection::{Finding, contains_error, has_diagnostic, query_succeeded};
 #[cfg(all(feature = "test-support", not(verus_keep_ghost)))]
 pub mod test_support {
     pub use crate::artifacts::exchange;

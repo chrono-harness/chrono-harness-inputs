@@ -1,11 +1,21 @@
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+use vstd::contrib::exec_spec::ExecSpecEq;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+#[cfg(not(verus_keep_ghost))]
 use crate::command::CommandSpec;
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, de::DeserializeOwned};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-struct Finding {
+#[cfg_attr(not(verus_keep_ghost), derive(Deserialize, serde::Serialize))]
+#[cfg_attr(not(verus_keep_ghost), serde(deny_unknown_fields))]
+pub struct Finding {
     code: String,
     level: String,
     message: String,
@@ -13,6 +23,7 @@ struct Finding {
     causes: Vec<String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 struct FilemapSelection {
     tests: Vec<String>,
@@ -20,6 +31,7 @@ struct FilemapSelection {
     findings: Vec<Finding>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CapturePlan {
@@ -31,7 +43,42 @@ pub struct CapturePlan {
     pub installed_paths: BTreeMap<String, std::path::PathBuf>,
 }
 
+verus! {
+impl Finding {
+    pub closed spec fn level_view(&self) -> Seq<char> { self.level@ }
+}
+
+pub fn contains_error(findings: &[Finding]) -> (error: bool)
+    ensures error == (exists|i: int| 0 <= i < findings.len()
+        && #[trigger] findings[i].level_view() == "error"@),
+{
+    let mut i = 0;
+    while i < findings.len()
+        invariant i <= findings.len(),
+            forall|j: int| 0 <= j < i ==> #[trigger] findings[j].level_view() != "error"@,
+        decreases findings.len() - i,
+    {
+        proof { assert(findings[i as int].level_view() == findings[i as int].level@); }
+        if <&str>::exec_eq(findings[i].level.as_str(), "error") {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+pub fn query_succeeded(code: i32) -> (ok: bool)
+    ensures ok == (code == 0),
+{ code == 0 }
+
+/// The transport has decoded stderr and removed a single trailing newline.
+pub fn has_diagnostic(message: &str) -> (present: bool)
+    ensures present == (message@.len() > 0),
+{ !message.is_empty() }
+}
+
 /// Ask registration to interpret the same fixed documents held by capture.
+#[cfg(not(verus_keep_ghost))]
 pub fn capture_plan(
     config: &str,
     endpoint: &Endpoint,
@@ -94,6 +141,7 @@ pub fn capture_plan(
     Ok(reply)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn selected_tests(
     commits: &Value,
     mut registries: Value,
@@ -109,11 +157,7 @@ pub fn selected_tests(
         environment,
         &mut invoke,
     )?;
-    if impact
-        .findings
-        .iter()
-        .any(|finding| finding.level == "error")
-    {
+    if contains_error(&impact.findings) {
         return Err(format!(
             "E_COMPOSE_SELECTION: {}",
             serde_json::to_string(&impact.findings).map_err(|error| error.to_string())?
@@ -135,6 +179,7 @@ pub fn selected_tests(
     )
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn query<T: DeserializeOwned>(
     program: &str,
     operation: &str,
@@ -157,10 +202,10 @@ pub(crate) fn query<T: DeserializeOwned>(
     };
     let input = serde_json::to_vec(endpoints).map_err(|error| error.to_string())?;
     let (code, output, diagnostic) = invoke(&command, &input)?;
-    if code != 0 {
+    if !query_succeeded(code) {
         let message = std::str::from_utf8(&diagnostic).map_err(|error| error.to_string())?;
         let message = message.strip_suffix('\n').unwrap_or(message);
-        return Err(if message.is_empty() {
+        return Err(if !has_diagnostic(message) {
             format!("{program} {operation} exited with {code}")
         } else {
             message.into()
@@ -170,6 +215,7 @@ pub(crate) fn query<T: DeserializeOwned>(
         .map_err(|error| format!("invalid {operation} response: {error}"))
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub struct Endpoint {
     pub values: BTreeMap<String, Value>,
@@ -178,6 +224,7 @@ pub struct Endpoint {
 }
 
 /// A single Git reader fixes the host configuration for all requested endpoints.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn endpoints(
     root: &std::path::Path,
     config: &str,
@@ -243,12 +290,14 @@ pub(crate) fn endpoints(
     Ok(endpoints)
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct InputProfile {
     pub credential_environment: BTreeSet<String>,
     pub has_execution_units: Option<bool>,
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn input_profile(
     root: &std::path::Path,
     config: &Value,
