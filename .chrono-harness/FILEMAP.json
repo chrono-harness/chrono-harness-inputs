@@ -318,14 +318,32 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/inputs-tests/tests/snapshots.rs",
+            "operation": "verify.inputs-blobs-tests"
+          }
+        ]
+      }
     },
     {
       "path": ".github/workflows/issue-roadmap.yml",
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/inputs-tests/tests/snapshots.rs",
+            "operation": "verify.inputs-blobs-tests"
+          }
+        ]
+      }
     },
     {
       "path": ".github/workflows/check.yml",
@@ -778,7 +796,16 @@
           "kind": "test-execution",
           "to": "test:inputs-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/inputs-tests/tests/snapshots.rs",
+            "operation": "verify.inputs-blobs-tests"
+          }
+        ]
+      }
     },
     {
       "path": ".config/mise/conf.d/.gitignore",
