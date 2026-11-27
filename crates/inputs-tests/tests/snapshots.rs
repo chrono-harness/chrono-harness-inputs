@@ -22,18 +22,21 @@ mod roadmap;
 verus! {
 #[cfg(verus_keep_ghost)]
 fn cli_result_keeps_work_errors_and_requires_the_exact_logger_exit(
-    message: String, output: String, wanted: u8, code: i32,
+    message: String, reported_error: String, output: String, wanted: u8, code: i32,
 ) {
     use policy::cli::{Completion, completion, output_code};
-    assert(output_code(&Ok::<String, String>(output)) == 0);
-    assert(output_code(&Err::<String, String>(message)) == 2);
-    assert(completion(Err::<u8, String>(message), None) == Completion::WorkError(message));
-    assert(completion(Err::<u8, String>(message), Some(code)) == Completion::WorkError(message));
-    assert(completion(Ok::<u8, String>(wanted), None) == Completion::LoggerMismatch(wanted));
-    if code as int == wanted as int {
-        assert(completion(Ok::<u8, String>(wanted), Some(code)) == Completion::Confirmed(wanted));
+    let good = output_code(&Ok::<String, String>(output));
+    let bad = output_code(&Err::<String, String>(reported_error));
+    assert(good == 0 && bad == 2);
+    let failed = completion(Err::<u8, String>(message), Some(code));
+    assert(failed == Completion::WorkError(message));
+    let signaled = completion(Ok::<u8, String>(wanted), None);
+    assert(signaled == Completion::LoggerMismatch(wanted));
+    let finished = completion(Ok::<u8, String>(wanted), Some(code));
+    if code == wanted as i32 {
+        assert(finished == Completion::Confirmed(wanted));
     } else {
-        assert(completion(Ok::<u8, String>(wanted), Some(code)) == Completion::LoggerMismatch(wanted));
+        assert(finished == Completion::LoggerMismatch(wanted));
     }
 }
 
