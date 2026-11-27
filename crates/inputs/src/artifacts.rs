@@ -1,6 +1,31 @@
 //! The caller owns a live retention process until it hands the result to its consumer.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// A completed line belongs to the decoder. EOF belongs to the producer's exit report.
+pub fn artifact_response_line<T>(read: Result<(usize, T), String>) -> (out: Result<Option<T>, String>)
+    ensures match read {
+        Err(error) => out == Err::<Option<T>, String>(error),
+        Ok((count, line)) => if count == 0 { out == Ok::<Option<T>, String>(None) }
+            else { out == Ok::<Option<T>, String>(Some(line)) },
+    },
+{
+    match read {
+        Err(error) => Err(error),
+        Ok((0, _)) => Ok(None),
+        Ok((_, line)) => Ok(Some(line)),
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use serde::de::DeserializeOwned;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     cell::RefCell,
     fs,
@@ -10,11 +35,13 @@ use std::{
     rc::Rc,
 };
 
+#[cfg(not(verus_keep_ghost))]
 struct Session {
     process: Child,
     input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Session {
     fn open(root: &Path) -> Result<Self, String> {
         let mut process = Command::new("chrono-harness")
@@ -39,6 +66,7 @@ impl Session {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn exchange<T: DeserializeOwned>(
     input: &mut Option<impl Write>,
     output: &mut impl BufRead,
@@ -56,7 +84,7 @@ pub fn exchange<T: DeserializeOwned>(
         .read_line(&mut response)
         .map(|count| (count, response))
         .map_err(|e| e.to_string());
-    match super::artifact_response_line(read)? {
+    match artifact_response_line(read)? {
         Some(line) => serde_json::from_str::<Result<T, String>>(&line)
             .map_err(|e| format!("invalid artifact response: {e}"))?,
         None => {
@@ -68,24 +96,28 @@ pub fn exchange<T: DeserializeOwned>(
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Drop for Session {
     fn drop(&mut self) {
         self.input.take();
         let _ = self.process.wait();
     }
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone)]
 pub(crate) struct Store {
     root: PathBuf,
     adopted: bool,
     session: Rc<RefCell<Option<Session>>>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl std::ops::Deref for Store {
     type Target = Path;
     fn deref(&self) -> &Path {
         &self.root
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Store {
     pub(crate) fn open(root: &Path) -> Result<Self, String> {
         let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
