@@ -1,4 +1,47 @@
+#![allow(unexpected_cfgs)]
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// Preserve the process status used by the caller and the diagnostics session.
+pub(crate) fn output_code(result: &Result<String, String>) -> (code: u8)
+    ensures code == if result.is_ok() { 0u8 } else { 2u8 },
+{
+    match result { Ok(_) => 0, Err(_) => 2 }
+}
+
+pub(crate) enum Completion {
+    Confirmed(u8),
+    WorkError(String),
+    LoggerMismatch(u8),
+}
+
+/// A failed request keeps its original error. A completed request requires
+/// the logger to have exited with that exact code, including after CLI errors.
+pub(crate) fn completion(result: Result<u8, String>, observed: Option<i32>) -> (out: Completion)
+    ensures match result {
+        Err(e) => out == Completion::WorkError(e),
+        Ok(wanted) => match observed {
+            Some(code) if code as int == wanted as int => out == Completion::Confirmed(wanted),
+            _ => out == Completion::LoggerMismatch(wanted),
+        },
+    },
+{
+    match result {
+        Err(e) => Completion::WorkError(e),
+        Ok(wanted) => match observed {
+            Some(code) if code == wanted as i32 => Completion::Confirmed(wanted),
+            _ => Completion::LoggerMismatch(wanted),
+        },
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use serde_json::json;
+#[cfg(not(verus_keep_ghost))]
 use std::{
     ffi::OsString,
     io::{BufRead, BufReader, Write},
@@ -6,6 +49,7 @@ use std::{
     process::{Command, ExitCode, Stdio},
 };
 
+#[cfg(not(verus_keep_ghost))]
 fn work(root: &Path, args: &[OsString]) -> Result<String, String> {
     let mut decoded = Vec::new();
     for (i, arg) in args.iter().enumerate() {
@@ -29,18 +73,16 @@ fn work(root: &Path, args: &[OsString]) -> Result<String, String> {
     }
     chrono_inputs::run(root, &decoded)
 }
+#[cfg(not(verus_keep_ghost))]
 fn finish(result: Result<String, String>) -> u8 {
+    let code = output_code(&result);
     match result {
-        Ok(text) => {
-            print!("{text}");
-            0
-        }
-        Err(error) => {
-            eprintln!("{error}");
-            2
-        }
+        Ok(text) => print!("{text}"),
+        Err(error) => eprintln!("{error}"),
     }
+    code
 }
+#[cfg(not(verus_keep_ghost))]
 fn run() -> Result<u8, String> {
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
@@ -90,14 +132,15 @@ fn run() -> Result<u8, String> {
     })();
     drop(writer);
     let status = child.wait().map_err(|e| e.to_string())?;
-    let wanted = result?;
-    if status.code() != Some(i32::from(wanted)) {
-        return Err(format!(
+    match completion(result, status.code()) {
+        Completion::Confirmed(code) => Ok(code),
+        Completion::WorkError(error) => Err(error),
+        Completion::LoggerMismatch(wanted) => Err(format!(
             "chrono-diagnostics cli-events-v1 exited {status} after {wanted}"
-        ));
+        )),
     }
-    Ok(wanted)
 }
+#[cfg(not(verus_keep_ghost))]
 fn main() -> ExitCode {
     match run() {
         Ok(exit) => exit.into(),
