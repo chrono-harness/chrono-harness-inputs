@@ -21,6 +21,23 @@ mod roadmap;
 
 verus! {
 #[cfg(verus_keep_ghost)]
+fn cli_result_keeps_work_errors_and_requires_the_exact_logger_exit(
+    message: String, output: String, wanted: u8, code: i32,
+) {
+    use policy::cli::{Completion, completion, output_code};
+    assert(output_code(&Ok::<String, String>(output)) == 0);
+    assert(output_code(&Err::<String, String>(message)) == 2);
+    assert(completion(Err::<u8, String>(message), None) == Completion::WorkError(message));
+    assert(completion(Err::<u8, String>(message), Some(code)) == Completion::WorkError(message));
+    assert(completion(Ok::<u8, String>(wanted), None) == Completion::LoggerMismatch(wanted));
+    if code as int == wanted as int {
+        assert(completion(Ok::<u8, String>(wanted), Some(code)) == Completion::Confirmed(wanted));
+    } else {
+        assert(completion(Ok::<u8, String>(wanted), Some(code)) == Completion::LoggerMismatch(wanted));
+    }
+}
+
+#[cfg(verus_keep_ghost)]
 fn stream_length_covers_exact_fit_empty_and_overflow(previous: u64) {
     let free = u64::MAX - previous;
     let exact = policy::copied_length(previous, free);

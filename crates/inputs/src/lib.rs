@@ -190,7 +190,12 @@ pub fn blob_identity_matches(actual: &str, actual_length: u64,
 }
 }
 
+// The normal program enters main.rs as its binary root. The verification
+// root includes those same decisions without compiling the CLI's OS adapter.
 mod artifacts;
+#[cfg(verus_keep_ghost)]
+#[path = "main.rs"]
+pub mod cli;
 pub use artifacts::artifact_response_line;
 mod command;
 #[cfg(not(verus_keep_ghost))]
