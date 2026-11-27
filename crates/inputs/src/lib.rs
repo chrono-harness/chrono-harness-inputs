@@ -207,10 +207,10 @@ pub fn blob_identity_matches(actual: &str, actual_length: u64,
 
 #[cfg(not(verus_keep_ghost))]
 mod artifacts;
-#[cfg(not(verus_keep_ghost))]
 mod command;
 #[cfg(not(verus_keep_ghost))]
 use artifacts::Store;
+pub use command::response_parts;
 pub mod capture_mapping;
 pub mod command_frame;
 pub mod composition;
