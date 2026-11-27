@@ -51,6 +51,26 @@ fn artifact_line_keeps_errors_and_distinguishes_eof_from_any_complete_reply(coun
     }
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn command_header_stops_at_first_lf_and_keeps_the_binary_tail() {
+    let wire = [0x7bu8, 10u8, 10u8, 0xffu8, 0u8];
+    match policy::response_parts(&wire) {
+        Some((header, payload)) => {
+            if header.len() != 1 || header[0] != 0x7b || payload.len() != 3
+                || payload[0] != 10 || payload[1] != 0xff || payload[2] != 0 { panic!(); }
+        },
+        None => panic!(),
+    }
+    let empty: [u8; 0] = [];
+    if policy::response_parts(&empty).is_some() || policy::response_parts(&[13u8, 0xffu8]).is_some() {
+        panic!();
+    }
+    match policy::response_parts(&[10u8]) {
+        Some((header, payload)) => { if !header.is_empty() || !payload.is_empty() { panic!(); } },
+        None => panic!(),
+    }
+}
+
 fn command_result_preserves_both_streams(bytes: &[u8], out: usize, err: usize, limit: usize) {
     match policy::command_frame::split(bytes, out, err, limit) {
         Some((first, second)) => {
