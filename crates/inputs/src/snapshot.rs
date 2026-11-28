@@ -56,6 +56,86 @@ pub fn first_field_error<'a, P, U>(required: &[&str], present: P, unexpected: U)
         None => None,
     }
 }
+
+/// An acquisition credential is redacted without even reading its live value.
+pub fn capture_inherited_environment<T, F: FnOnce() -> T>(credential: bool, read: F) -> (out: Option<T>)
+    requires !credential ==> read.requires(()),
+    ensures match out {
+        None => credential,
+        Some(value) => !credential && read.ensures((), value),
+    },
+{
+    if credential { None } else { Some(read()) }
+}
+
+pub fn environment_key_registered(inherited: bool, configured: bool) -> (allowed: bool)
+    ensures allowed == (inherited || configured),
+{
+    inherited || configured
+}
+
+#[derive(Clone, Copy)]
+pub enum EnvironmentObservation { Missing, Null, Text }
+
+#[derive(Clone, Copy)]
+pub struct InheritedEnvironment<'a> {
+    pub key: &'a str,
+    pub credential: bool,
+    pub observed: EnvironmentObservation,
+}
+
+pub enum EnvironmentBindingError<'a> { Unregistered(&'a str), Credential, Missing(&'a str) }
+
+pub open spec fn inherited_environment_valid(row: InheritedEnvironment) -> bool {
+    if row.credential { row.observed == EnvironmentObservation::Null }
+    else { row.observed != EnvironmentObservation::Missing }
+}
+
+/// Check all extra keys first, then reject the first missing or unredacted inherited value.
+pub fn admit_environment_binding<'a>(captured: &[(&'a str, bool)], inherited: &[InheritedEnvironment<'a>])
+    -> (out: Result<(), EnvironmentBindingError<'a>>)
+    ensures match out {
+        Err(EnvironmentBindingError::Unregistered(key)) =>
+            exists|i: int| 0 <= i < captured.len() && #[trigger] captured@[i] == (key, false)
+                && forall|j: int| 0 <= j < i ==> (#[trigger] captured@[j]).1,
+        other => (forall|i: int| 0 <= i < captured.len() ==> (#[trigger] captured@[i]).1)
+            && match other {
+                Err(EnvironmentBindingError::Credential) =>
+                    exists|i: int| 0 <= i < inherited.len() && !inherited_environment_valid(#[trigger] inherited@[i])
+                        && inherited@[i].credential
+                        && forall|j: int| 0 <= j < i ==> inherited_environment_valid(#[trigger] inherited@[j]),
+                Err(EnvironmentBindingError::Missing(key)) =>
+                    exists|i: int| 0 <= i < inherited.len() && !inherited_environment_valid(#[trigger] inherited@[i])
+                        && !inherited@[i].credential && inherited@[i].key == key
+                        && forall|j: int| 0 <= j < i ==> inherited_environment_valid(#[trigger] inherited@[j]),
+                Ok(()) => forall|i: int| 0 <= i < inherited.len() ==> inherited_environment_valid(#[trigger] inherited@[i]),
+                _ => false,
+            },
+    },
+{
+    if let Some(key) = super::first_unsatisfied(captured) {
+        return Err(EnvironmentBindingError::Unregistered(key));
+    }
+    let mut index = 0;
+    while index < inherited.len()
+        invariant index <= inherited.len(),
+            forall|i: int| 0 <= i < inherited.len() && i < index ==> inherited_environment_valid(#[trigger] inherited@[i]),
+            forall|i: int| 0 <= i < captured.len() ==> (#[trigger] captured@[i]).1,
+        decreases inherited.len() - index,
+    {
+        let row = inherited[index];
+        if row.credential {
+            if !matches!(row.observed, EnvironmentObservation::Null) {
+                return Err(EnvironmentBindingError::Credential);
+            }
+        } else if matches!(row.observed, EnvironmentObservation::Missing) {
+            return Err(EnvironmentBindingError::Missing(row.key));
+        }
+        index += 1;
+    }
+    Ok(())
+}
+
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -260,20 +340,39 @@ pub(crate) fn bind_environment(
     let captured = captured
         .as_object()
         .ok_or("E_INPUT_SNAPSHOT: invalid environment")?;
-    for key in captured.keys() {
-        if !inherited.contains(key.as_str()) && !values.contains_key(key) {
-            return Err(format!("unregistered retained environment variable {key}"));
+    let captured_keys: Vec<_> = captured
+        .keys()
+        .map(|key| {
+            (
+                key.as_str(),
+                environment_key_registered(
+                    inherited.contains(key.as_str()),
+                    values.contains_key(key),
+                ),
+            )
+        })
+        .collect();
+    let inherited: Vec<_> = inherited
+        .iter()
+        .map(|key| InheritedEnvironment {
+            key,
+            credential: credentials.contains(*key),
+            observed: match captured.get(*key) {
+                None => EnvironmentObservation::Missing,
+                Some(Value::Null) => EnvironmentObservation::Null,
+                Some(_) => EnvironmentObservation::Text,
+            },
+        })
+        .collect();
+    admit_environment_binding(&captured_keys, &inherited).map_err(|error| match error {
+        EnvironmentBindingError::Unregistered(key) => {
+            format!("unregistered retained environment variable {key}")
         }
-    }
-    for key in inherited {
-        if credentials.contains(key) && captured.get(key) != Some(&Value::Null) {
-            return Err(
-                "acquisition credentials cannot be retained as business environment inputs".into(),
-            );
+        EnvironmentBindingError::Credential => {
+            "acquisition credentials cannot be retained as business environment inputs".into()
         }
-        if !captured.contains_key(key) {
-            return Err(format!("missing retained environment variable {key}"));
+        EnvironmentBindingError::Missing(key) => {
+            format!("missing retained environment variable {key}")
         }
-    }
-    Ok(())
+    })
 }

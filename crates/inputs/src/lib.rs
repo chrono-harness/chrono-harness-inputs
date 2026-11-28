@@ -189,6 +189,43 @@ pub fn blob_identity_matches(actual: &str, actual_length: u64,
     <&str>::exec_eq(actual, expected) && actual_length == expected_length
 }
 
+/// Find the first unsatisfied requirement in the caller's original order.
+pub fn first_unsatisfied<'a>(rows: &[(&'a str, bool)]) -> (out: Option<&'a str>)
+    ensures match out {
+        Some(key) => exists|i: int| 0 <= i < rows.len() && #[trigger] rows@[i] == (key, false)
+            && forall|j: int| 0 <= j < i ==> (#[trigger] rows@[j]).1,
+        None => forall|i: int| 0 <= i < rows.len() ==> (#[trigger] rows@[i]).1,
+    },
+{
+    let mut index = 0;
+    while index < rows.len()
+        invariant index <= rows.len(),
+            forall|i: int| 0 <= i < index ==> (#[trigger] rows@[i]).1,
+        decreases rows.len() - index,
+    {
+        let (key, satisfied) = rows[index];
+        if !satisfied { return Some(key); }
+        index += 1;
+    }
+    None
+}
+
+/// Capture checks the declared digest for installed inputs before copying.
+pub fn installed_input_matches(installed: bool, actual: Option<&str>, expected: Option<&str>)
+    -> (matches: bool)
+    ensures matches == (!installed || match (actual, expected) {
+        (Some(actual), Some(expected)) => actual@ == expected@,
+        (None, None) => true,
+        _ => false,
+    }),
+{
+    !installed || match (actual, expected) {
+        (Some(actual), Some(expected)) => <&str>::exec_eq(actual, expected),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 /// Admit the copied identity before the offline pair can publish its snapshot.
 pub fn admit_transported_blob(actual: Option<&str>, actual_length: Option<u64>,
     expected: &str, expected_length: u64) -> (out: Result<(), String>)
@@ -427,7 +464,11 @@ pub use custody::Produced;
 use serde_json::{Value, json as value};
 #[cfg(not(verus_keep_ghost))]
 use snapshot::snapshot_shape;
-pub use snapshot::{FieldError, field_declared, first_field_error};
+pub use snapshot::{
+    EnvironmentBindingError, EnvironmentObservation, FieldError, InheritedEnvironment,
+    admit_environment_binding, capture_inherited_environment, environment_key_registered,
+    field_declared, first_field_error,
+};
 #[cfg(not(verus_keep_ghost))]
 pub use snapshot::{SNAPSHOT_SCHEMA, SNAPSHOT_SCHEMA_V2, SNAPSHOT_SCHEMA_V3};
 #[cfg(not(verus_keep_ghost))]
@@ -624,15 +665,14 @@ pub fn capture_selected(
         .ok_or("invalid inherited environment")?
     {
         let key = key.as_str().ok_or("invalid inherited variable")?;
-        let v = if credentials.contains(key) {
-            Value::Null
-        } else {
-            match std::env::var(key) {
-                Ok(v) => Value::String(v),
-                Err(std::env::VarError::NotPresent) => Value::Null,
-                Err(_) => return Err(format!("E_INPUT_ENVIRONMENT: non-UTF8 value for {key}")),
-            }
-        };
+        let v =
+            capture_inherited_environment(credentials.contains(key), || match std::env::var(key) {
+                Ok(v) => Ok(Value::String(v)),
+                Err(std::env::VarError::NotPresent) => Ok(Value::Null),
+                Err(_) => Err(format!("E_INPUT_ENVIRONMENT: non-UTF8 value for {key}")),
+            })
+            .transpose()?
+            .unwrap_or(Value::Null);
         environment.insert(key.into(), v);
     }
     let mut files = serde_json::Map::new();
@@ -649,9 +689,11 @@ pub fn capture_selected(
         let path = installed.cloned().unwrap_or_else(|| root.join(location));
         let retained = if matches!(effective["schema_version"].as_u64(), Some(2 | 3 | 4)) {
             let identity = observe_file(&path)?;
-            if installed.is_some()
-                && identity.as_ref().map(|(digest, _)| digest.as_str()) != input["sha256"].as_str()
-            {
+            if !installed_input_matches(
+                installed.is_some(),
+                identity.as_ref().map(|(digest, _)| digest.as_str()),
+                input["sha256"].as_str(),
+            ) {
                 return Err(format!(
                     "E_INPUT_READ: installed tool digest or presence differs: {id}"
                 ));
@@ -660,9 +702,13 @@ pub fn capture_selected(
                 None => value!({"absent":true}),
                 Some(identity) => {
                     let observed = store(root, &path)?;
-                    if observed["sha256"] != identity.0 || observed["length"] != identity.1 {
-                        return Err("E_INPUT_READ: input changed during capture".into());
-                    }
+                    admit_transported_blob(
+                        observed["sha256"].as_str(),
+                        observed["length"].as_u64(),
+                        &identity.0,
+                        identity.1,
+                    )
+                    .map_err(|_| "E_INPUT_READ: input changed during capture")?;
                     observed
                 }
             }

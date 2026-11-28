@@ -22,6 +22,85 @@ impl CompositionEndpoint {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum SelectedInputCoverage<'a> {
+    Unresolved,
+    Missing(&'a str),
+    Complete,
+}
+
+pub enum CoverageGap<'a> {
+    Original,
+    Selection,
+    Input(&'a str),
+}
+
+pub fn selected_input_coverage<'a>(rows: Option<&[(&'a str, bool)]>)
+    -> (out: SelectedInputCoverage<'a>)
+    ensures match rows {
+        None => out == SelectedInputCoverage::Unresolved,
+        Some(rows) => match out {
+            SelectedInputCoverage::Missing(key) =>
+                exists|i: int| 0 <= i < rows.len() && #[trigger] rows@[i] == (key, false)
+                    && forall|j: int| 0 <= j < i ==> (#[trigger] rows@[j]).1,
+            SelectedInputCoverage::Complete => forall|i: int| 0 <= i < rows.len() ==> (#[trigger] rows@[i]).1,
+            _ => false,
+        },
+    },
+{
+    let Some(rows) = rows else { return SelectedInputCoverage::Unresolved; };
+    match super::first_unsatisfied(rows) {
+        Some(key) => SelectedInputCoverage::Missing(key),
+        None => SelectedInputCoverage::Complete,
+    }
+}
+
+pub open spec fn endpoint_gap<'a>(present: bool, inputs: SelectedInputCoverage<'a>) -> Option<CoverageGap<'a>> {
+    if !present { Some(CoverageGap::Original) }
+    else {
+        match inputs {
+            SelectedInputCoverage::Unresolved => Some(CoverageGap::Selection),
+            SelectedInputCoverage::Missing(key) => Some(CoverageGap::Input(key)),
+            SelectedInputCoverage::Complete => None,
+        }
+    }
+}
+
+fn endpoint_gap_observed<'a>(present: bool, inputs: SelectedInputCoverage<'a>) -> (out: Option<CoverageGap<'a>>)
+    ensures out == endpoint_gap(present, inputs),
+{
+    if !present { Some(CoverageGap::Original) }
+    else {
+        match inputs {
+            SelectedInputCoverage::Unresolved => Some(CoverageGap::Selection),
+            SelectedInputCoverage::Missing(key) => Some(CoverageGap::Input(key)),
+            SelectedInputCoverage::Complete => None,
+        }
+    }
+}
+
+/// Publication requires base coverage before inspecting the candidate result.
+pub fn require_composition_coverage<'a>(
+    base_present: bool, base: SelectedInputCoverage<'a>,
+    candidate_present: bool, candidate: SelectedInputCoverage<'a>,
+) -> (out: Result<(), (CompositionEndpoint, CoverageGap<'a>)>)
+    ensures out == match endpoint_gap(base_present, base) {
+        Some(gap) => Err((CompositionEndpoint::Base, gap)),
+        None => match endpoint_gap(candidate_present, candidate) {
+            Some(gap) => Err((CompositionEndpoint::Candidate, gap)),
+            None => Ok(()),
+        },
+    },
+{
+    if let Some(gap) = endpoint_gap_observed(base_present, base) {
+        return Err((CompositionEndpoint::Base, gap));
+    }
+    match endpoint_gap_observed(candidate_present, candidate) {
+        Some(gap) => Err((CompositionEndpoint::Candidate, gap)),
+        None => Ok(()),
+    }
+}
+
 /// 仅观察原声明数组与 ID 字段；匹配由本证明根完成。
 pub trait CompositionInputRows {
     spec fn count(&self) -> nat;
@@ -1255,25 +1334,39 @@ pub fn compose(
     composed?;
     let pair = composition.state;
     let originals = composition.originals;
-    for (name, r) in [("base", &old), ("candidate", &new)] {
-        if pair.get(name).is_none() {
-            return Err(format!(
-                "E_COMPOSE_COVERAGE: {name} missing endpoint original"
-            ));
-        }
-        let required = if let Some(inputs) = &collection_inputs {
-            inputs
-                .get(name)
-                .ok_or_else(|| format!("missing collection input endpoint {name}"))?
-        } else {
-            &r.required
-        };
-        for id in required {
-            if pair[name]["files"].get(id).is_none() {
-                return Err(format!("E_COMPOSE_COVERAGE: {name} missing input {id}"));
-            }
-        }
+    fn observe_inputs<'a>(
+        pair: &Value,
+        name: &str,
+        required: &'a BTreeSet<String>,
+    ) -> Vec<(&'a str, bool)> {
+        required
+            .iter()
+            .map(|id| (id.as_str(), pair[name]["files"].get(id).is_some()))
+            .collect()
     }
+    let required = |name, declared| match &collection_inputs {
+        Some(inputs) => inputs.get(name),
+        None => Some(declared),
+    };
+    let base_inputs = required("base", &old.required).map(|ids| observe_inputs(&pair, "base", ids));
+    let candidate_inputs =
+        required("candidate", &new.required).map(|ids| observe_inputs(&pair, "candidate", ids));
+    require_composition_coverage(
+        pair.get("base").is_some(),
+        selected_input_coverage(base_inputs.as_deref()),
+        pair.get("candidate").is_some(),
+        selected_input_coverage(candidate_inputs.as_deref()),
+    )
+    .map_err(|(endpoint, gap)| {
+        let name = endpoint.name();
+        match gap {
+            CoverageGap::Original => {
+                format!("E_COMPOSE_COVERAGE: {name} missing endpoint original")
+            }
+            CoverageGap::Selection => format!("missing collection input endpoint {name}"),
+            CoverageGap::Input(id) => format!("E_COMPOSE_COVERAGE: {name} missing input {id}"),
+        }
+    })?;
     publish(root, output, &pair)?;
     let mut blobs = custody::blobs(&pair["base"]);
     blobs.extend(custody::blobs(&pair["candidate"]));

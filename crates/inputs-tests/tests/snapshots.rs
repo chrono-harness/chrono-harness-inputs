@@ -1173,6 +1173,106 @@ fn input_commands_accept_only_single_argument_help_and_version() {
     if !help { panic!(); }
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn capture_redacts_credentials_and_checks_only_installed_digests() {
+    use policy::{capture_inherited_environment, installed_input_matches};
+    let secret = capture_inherited_environment(true, || -> (value: u8)
+        requires false,
+        ensures value == 7,
+    { 7 });
+    let empty = capture_inherited_environment(false, || -> (value: &str)
+        ensures value == "",
+    { "" });
+    let absent = capture_inherited_environment(false, || -> (value: Option<u8>)
+        ensures value.is_none(),
+    { None });
+    let business = installed_input_matches(false, Some("a"), Some("bb"));
+    let installed = installed_input_matches(true, Some("a"), Some("a"));
+    let wrong = installed_input_matches(true, Some("a"), Some("bb"));
+    let missing = installed_input_matches(true, None, Some("a"));
+    proof {
+        reveal_strlit("a");
+        reveal_strlit("bb");
+        assert("a"@.len() != "bb"@.len());
+    }
+    let correct = secret.is_none() && matches!(empty, Some(value) if <&str>::exec_eq(value, "")) && absent == Some(None)
+        && business && installed && !wrong && !missing;
+    assert(correct);
+    if !correct { panic!(); }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn retained_environment_checks_unknown_keys_before_sorted_inherited_values() {
+    use policy::{EnvironmentBindingError as Rejection, EnvironmentObservation as Value,
+        InheritedEnvironment, admit_environment_binding, environment_key_registered};
+
+    let registered = [
+        ("BUSINESS", environment_key_registered(true, false)),
+        ("TOKEN", environment_key_registered(true, false)),
+        ("CONFIGURED", environment_key_registered(false, true)),
+    ];
+    let extra = [("EXTRA", environment_key_registered(false, false))];
+    let business = InheritedEnvironment { key: "BUSINESS", credential: false, observed: Value::Text };
+    let token = InheritedEnvironment { key: "TOKEN", credential: true, observed: Value::Null };
+    let missing_business = InheritedEnvironment { observed: Value::Missing, ..business };
+    let missing_token = InheritedEnvironment { observed: Value::Missing, ..token };
+    let exposed_token = InheritedEnvironment { observed: Value::Text, ..token };
+    let correct = admit_environment_binding(&registered, &[business, token]).is_ok()
+        && matches!(admit_environment_binding(&extra, &[missing_business, exposed_token]),
+            Err(Rejection::Unregistered(key)) if <&str>::exec_eq(key, "EXTRA"))
+        && matches!(admit_environment_binding(&registered, &[missing_business, exposed_token]),
+            Err(Rejection::Missing(key)) if <&str>::exec_eq(key, "BUSINESS"))
+        && matches!(admit_environment_binding(&registered, &[business, exposed_token]), Err(Rejection::Credential))
+        && matches!(admit_environment_binding(&registered, &[business, missing_token]), Err(Rejection::Credential));
+    assert(correct);
+    if !correct { panic!(); }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn composition_requires_both_originals_and_each_selected_input_in_order() {
+    use policy::composition::{CompositionEndpoint as Endpoint, CoverageGap as Gap, SelectedInputCoverage,
+        require_composition_coverage, selected_input_coverage};
+    let present_rows = [("selected", true)];
+    let missing_rows = [("selected", false), ("later", false)];
+    let supplied = present_rows.as_slice();
+    let omitted = missing_rows.as_slice();
+    let present = selected_input_coverage(Some(supplied));
+    let missing_inputs = selected_input_coverage(Some(omitted));
+    let no_selection = selected_input_coverage(None);
+    proof {
+        assert(supplied@ == seq![("selected", true)]);
+        assert(omitted@ == seq![("selected", false), ("later", false)]);
+        assert(omitted.len() == 2);
+        assert(supplied.len() == 1);
+        assert(present == SelectedInputCoverage::Complete);
+        match missing_inputs {
+            SelectedInputCoverage::Missing(key) => {
+                let i = choose|i: int| 0 <= i < omitted.len() && omitted@[i] == (key, false)
+                    && forall|j: int| 0 <= j < i ==> (#[trigger] omitted@[j]).1;
+                assert(omitted@[0].1 == false);
+                assert(i == 0);
+                assert(key@ == "selected"@);
+            },
+            SelectedInputCoverage::Complete => {
+                assert(omitted@[0].1);
+                assert(false);
+            },
+            _ => assert(false),
+        }
+    }
+    let complete = require_composition_coverage(true, present, true, present).is_ok();
+    let base_missing = matches!(require_composition_coverage(false, present, false, present), Err((Endpoint::Base, Gap::Original)));
+    let candidate_missing = matches!(require_composition_coverage(true, present, false, present), Err((Endpoint::Candidate, Gap::Original)));
+    let base_input_missing = matches!(require_composition_coverage(true, missing_inputs, false, present),
+        Err((Endpoint::Base, Gap::Input(key))) if <&str>::exec_eq(key, "selected"));
+    let candidate_input_missing = matches!(require_composition_coverage(true, present, true, missing_inputs),
+        Err((Endpoint::Candidate, Gap::Input(key))) if <&str>::exec_eq(key, "selected"));
+    let selection_missing = matches!(require_composition_coverage(true, no_selection, false, present), Err((Endpoint::Base, Gap::Selection)));
+    assert(complete && base_missing && candidate_missing && base_input_missing && candidate_input_missing && selection_missing);
+    if !(complete && base_missing && candidate_missing && base_input_missing
+        && candidate_input_missing && selection_missing) { panic!(); }
+}
+
 fn composition_result(result: Result<(), String>, success: bool, expected: &str)
     requires result.is_ok() == success,
         match result { Err(error) => error@ == expected@, _ => true, },
