@@ -13,6 +13,9 @@ use vstd::prelude::*;
 use vstd::vpanic as panic;
 
 #[cfg(verus_keep_ghost)]
+mod offline_pair;
+
+#[cfg(verus_keep_ghost)]
 #[path = "selection.rs"]
 mod selection_expectations;
 
