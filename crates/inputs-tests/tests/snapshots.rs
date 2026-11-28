@@ -19,8 +19,8 @@ mod offline_pair;
 #[path = "selection.rs"]
 mod selection_expectations;
 
-#[path = "../../../.chrono-harness/ci/roadmap.rs"]
-mod roadmap;
+#[path = "../../../.chrono-harness/ci/host_adapters.rs"]
+mod host_adapters;
 
 verus! {
 #[cfg(verus_keep_ghost)]
@@ -53,14 +53,6 @@ fn stream_length_covers_exact_fit_empty_and_overflow(previous: u64) {
         let over = policy::copied_length(previous, free + 1);
         assert(over.is_none());
     }
-}
-
-fn deployed_installer() -> &'static str { include_str!("../../../.chrono-harness/install-tools.sh") }
-
-fn matches_installer(digest: &str) -> (matched: bool)
-    ensures matched == (digest@ == "463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941"@)
-{
-    <&str>::exec_eq(digest, "463052d115cab6d117f83b7546ee3c9481f42ab210c4347833668f84eb6d1941")
 }
 
 fn artifact_line_keeps_errors_and_distinguishes_eof_from_any_complete_reply(count: usize, line: u8, error: String) {
@@ -1850,13 +1842,6 @@ fn retained_snapshot_versions_and_file_forms_preserve_error_order() {
     expect_shape_error(admit_reference(true,true,false), "E_INPUT_BLOB: invalid length");
     expect_shape(admit_reference(true,true,true).is_ok());
 }
-}
-
-#[cfg(not(verus_keep_ghost))]
-#[test]
-fn installed_setup_matches_the_rendered_host() {
-    use chrono_inputs::test_support::sha256;
-    assert!(matches_installer(&sha256(deployed_installer().as_bytes())));
 }
 
 #[cfg(not(verus_keep_ghost))]

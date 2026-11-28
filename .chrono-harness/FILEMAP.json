@@ -66,7 +66,7 @@
       ]
     },
     {
-      "path": ".chrono-harness/ci/roadmap.rs",
+      "path": ".chrono-harness/ci/host_adapters.rs",
       "owner": "inputs-tests",
       "surface": "test",
       "cost": "unmeasured",
