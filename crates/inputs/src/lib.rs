@@ -188,6 +188,23 @@ pub fn blob_identity_matches(actual: &str, actual_length: u64,
 {
     <&str>::exec_eq(actual, expected) && actual_length == expected_length
 }
+
+/// Admit the copied identity before the offline pair can publish its snapshot.
+pub fn admit_transported_blob(actual: Option<&str>, actual_length: Option<u64>,
+    expected: &str, expected_length: u64) -> (out: Result<(), String>)
+    ensures out.is_ok() == (match actual {
+        Some(digest) => digest@ == expected@ && actual_length == Some(expected_length),
+        None => false,
+    }),
+        match out { Err(error) => error@ == "E_INPUT_BLOB: retained bytes differ from snapshot"@, _ => true, },
+{
+    let matches = match (actual, actual_length) {
+        (Some(actual), Some(length)) => blob_identity_matches(actual, length, expected, expected_length),
+        _ => false,
+    };
+    if matches { Ok(()) }
+    else { Err("E_INPUT_BLOB: retained bytes differ from snapshot".to_string()) }
+}
 }
 
 // The normal program enters main.rs as its binary root. The verification
@@ -701,9 +718,12 @@ fn transport(from: &Store, snapshot: &str, to: &Store) -> Result<Value, String> 
         from.retain(blob)?;
         let path = state(from, blob)?;
         let observed = store(to, &path)?;
-        if observed["sha256"] != digest || observed["length"] != length {
-            return Err("E_INPUT_BLOB: retained bytes differ from snapshot".into());
-        }
+        admit_transported_blob(
+            observed["sha256"].as_str(),
+            observed["length"].as_u64(),
+            digest,
+            length,
+        )?;
         *f = observed;
     }
     Ok(v)

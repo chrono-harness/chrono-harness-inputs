@@ -1,6 +1,32 @@
+#![allow(unexpected_cfgs)]
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+#[cfg(verus_keep_ghost)]
+verus! {
+fn offline_transport_accepts_only_the_copied_identity() {
+    use crate::{composition_result, policy::admit_transported_blob};
+
+    proof {
+        reveal_strlit("hash"); reveal_strlit("Hash");
+        assert("hash"@[0] != "Hash"@[0]);
+    }
+    let error = "E_INPUT_BLOB: retained bytes differ from snapshot";
+    composition_result(admit_transported_blob(Some("hash"), Some(0), "hash", 0), true, "");
+    composition_result(admit_transported_blob(Some("hash"), Some(u64::MAX), "hash", u64::MAX), true, "");
+    composition_result(admit_transported_blob(Some("Hash"), Some(42), "hash", 42), false, error);
+    composition_result(admit_transported_blob(Some("hash"), Some(42), "hash", 43), false, error);
+    composition_result(admit_transported_blob(None, Some(42), "hash", 42), false, error);
+    composition_result(admit_transported_blob(Some("hash"), None, "hash", 42), false, error);
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{fs, process::Command};
 
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn pairs_stored_inputs_with_an_empty_tool_search_path() {
     let fixture = tempfile::tempdir().unwrap();
@@ -60,19 +86,38 @@ fn pairs_stored_inputs_with_an_empty_tool_search_path() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let stored: Value = serde_json::from_slice(&fs::read(destination.join(pair)).unwrap()).unwrap();
-    assert_eq!(stored, json!({"base":base,"candidate":candidate}));
+    let expected = serde_json::to_vec(&json!({"base":base,"candidate":candidate})).unwrap();
+    assert_eq!(fs::read(destination.join(pair)).unwrap(), expected);
     assert_eq!(fs::read(destination.join(&blob)).unwrap(), bytes);
 
-    fs::write(root.join("candidate").join(&blob), b"changed offline bytes").unwrap();
     let rejected = ".chrono-harness/state/rejected.json";
-    let result = run(rejected);
-    assert_eq!(result.status.code(), Some(2));
-    assert!(
-        String::from_utf8_lossy(&result.stderr)
-            .contains("E_INPUT_BLOB: retained bytes differ from snapshot")
-    );
-    assert!(!destination.join(rejected).exists());
+    let reject_identity = || {
+        let result = run(rejected);
+        assert_eq!(result.status.code(), Some(2), "{result:?}");
+        assert_eq!(
+            result.stderr,
+            b"E_INPUT_BLOB: retained bytes differ from snapshot\n"
+        );
+        assert!(!destination.join(rejected).exists());
+    };
+    let candidate_blob = root.join("candidate").join(&blob);
+    let mut replacement = bytes.to_vec();
+    replacement[0] ^= 1;
+    fs::write(&candidate_blob, replacement).unwrap();
+    reject_identity();
+    fs::write(candidate_blob, bytes).unwrap();
+
+    let candidate_path = root.join("candidate/.chrono-harness/state/input.json");
+    let mut wrong_length = candidate.clone();
+    wrong_length["files"]["sdk"]["length"] = json!(bytes.len() + 1);
+    fs::write(&candidate_path, wrong_length.to_string()).unwrap();
+    reject_identity();
+    fs::write(candidate_path, candidate.to_string()).unwrap();
+
+    let restored = ".chrono-harness/state/restored.json";
+    let result = run(restored);
+    assert!(result.status.success(), "{result:?}");
+    assert_eq!(fs::read(destination.join(restored)).unwrap(), expected);
 
     let mut inline = base;
     inline["files"] = json!({"a":{"bytes":[0,255]}});
@@ -94,6 +139,7 @@ fn pairs_stored_inputs_with_an_empty_tool_search_path() {
     assert!(!destination.join(rejected).exists());
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn snapshot_versions_reject_inconsistent_selectors_and_malformed_file_addresses() {
     let mut snapshot = json!({
